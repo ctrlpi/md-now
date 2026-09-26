@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MD Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.15/dist/purify.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #1f2328;
+    background: #ffffff;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Top bar (brand · folder presets · pick · path · open) */
+  #topbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    background: #f6f8fa;
+    border-bottom: 1px solid #d0d7de;
+    padding: 8px 16px;
+  }
+  #topbar .brand { flex-shrink: 0; white-space: nowrap; font-weight: 600; font-size: 14px; color: #1f2328; margin-right: 4px; }
+  #topbar #roots { display: inline-flex; gap: 6px; }
+  #topbar .root  { flex: 1; font-size: 12px; color: #57606a; margin-left: 4px;
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #topbar .count { font-size: 12px; color: #57606a; margin-left: 4px; }
+  .rootbtn {
+    font-size: 12px; font-weight: 500; color: #24292f;
+    background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; line-height: 18px;
+  }
+  .rootbtn:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  .rootbtn.active { background: #ddf4ff; border-color: #54aeff; color: #0969da; }
+  .rootbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  #rootpick {
+    font-size: 14px; font-weight: 600; color: #24292f; line-height: 14px;
+    background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 4px 9px; cursor: pointer;
+  }
+  #rootpick:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  #rootopen {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 500; color: #24292f; line-height: 18px;
+    background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; flex-shrink: 0;
+  }
+  #rootopen:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  #rootopen:disabled { opacity: 0.45; cursor: not-allowed; background: #fff; border-color: rgba(31,35,40,0.15); }
+  #claude-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #57606a; background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 4px 7px; cursor: pointer; flex-shrink: 0; margin-left: 2px;
+  }
+  #claude-toggle:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  #claude-toggle.off { color: #0969da; background: #ddf4ff; border-color: #54aeff; }
+  #claude-toggle svg { display: block; }
+
+  /* Layout */
+  #main { flex: 1; display: flex; min-height: 0; }
+
+  #sidebar {
+    flex: 0 0 22%;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+  }
+  /* Draggable divider between sidebar and viewer. */
+  #dragbar {
+    flex: 0 0 5px;
+    cursor: col-resize;
+    background: #d0d7de;
+    border-left: 1px solid #d0d7de;
+  }
+  #dragbar:hover, #dragbar.dragging { background: #0969da; }
+  #search-wrap { padding: 10px; border-bottom: 1px solid #d0d7de; }
+  #search {
+    width: 100%;
+    font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    outline: none;
+  }
+  #search:focus { border-color: #0969da; box-shadow: 0 0 0 2px rgba(9,105,218,0.2); }
+
+  #filelist { flex: 1; overflow-y: auto; }
+
+  .file {
+    padding: 9px 12px;
+    border-bottom: 1px solid #eaeef2;
+    cursor: pointer;
+  }
+  .file:hover { background: #f6f8fa; }
+  .file.active { background: #ddf4ff; }
+  .file .frow {
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .file .ftitle {
+    font-size: 13px; font-weight: 600; color: #1f2328; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file .fname {
+    font-size: 12px; font-weight: 400; color: #57606a;
+    margin-left: auto; text-align: right; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file .fdetail {
+    display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
+  }
+  .file .fmeta {
+    font-size: 11px; color: #8c959f; flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .file .fdir {
+    font-size: 11px; color: #8c959f; margin-left: auto; text-align: right; flex: 0 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .file .fmeta span + span::before { content: ' · '; }
+
+  #empty { padding: 24px; text-align: center; color: #8c959f; font-size: 13px; }
+
+  /* Viewer side */
+  #right { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+  #toolbar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    background: #f6f8fa;
+    border-bottom: 1px solid #d0d7de;
+    padding: 8px 16px;
+  }
+  #toolbar .filename { flex: 1 1 160px; min-width: 0; font-size: 13px; color: #57606a; font-weight: 500;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #toolbar button {
+    font-size: 11px; font-weight: 500; color: #24292f;
+    background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 3px 8px; cursor: pointer; line-height: 18px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  #rootedit, #refresh-btn, #auto-select { height: 26px; flex: 0 0 auto; white-space: nowrap; }
+  #toolbar button:disabled, #auto-select:disabled { opacity: 0.45; cursor: not-allowed; }
+  #toolbar button:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  #refresh-btn svg { flex-shrink: 0; }
+  #refresh-btn.spinning svg { animation: spin 0.6s linear; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  #auto-select {
+    font-size: 11px; font-weight: 500; color: #24292f;
+    background: #fff; border: 1px solid rgba(31,35,40,0.15);
+    border-radius: 6px; padding: 3px 6px; cursor: pointer; line-height: 18px;
+    appearance: none; -webkit-appearance: none; padding-right: 22px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2357606a'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 6px center;
+  }
+  #auto-select:focus { outline: 2px solid #0969da; outline-offset: 1px; }
+  #countdown:empty { display: none; }
+  #countdown { flex: 0 0 32px; width: 32px; font-size: 11px; color: #57606a;
+               text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  #scroll { flex: 1; overflow-y: auto; }
+  #viewer { max-width: 800px; margin: 0 auto; padding: 32px 32px 80px; }
+  #placeholder {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; color: #8c959f;
+  }
+  #placeholder p { font-size: 18px; font-weight: 600; color: #57606a; }
+
+  /* Markdown */
+  #content { font-size: 16px; line-height: 1.5; color: #1f2328; }
+  #content h1, #content h2 { padding-bottom: 0.3em; border-bottom: 1px solid #d0d7de; }
+  #content h1 { font-size: 2em;   margin: 0.67em 0; font-weight: 600; }
+  #content h2 { font-size: 1.5em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+  #content h3 { font-size: 1.25em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+  #content h4 { font-size: 1em;   margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+  #content h5 { font-size: 0.875em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+  #content h6 { font-size: 0.85em;  margin-top: 24px; margin-bottom: 16px; font-weight: 600; color: #57606a; }
+  #content p  { margin-top: 0; margin-bottom: 16px; }
+  #content a { color: #0969da; text-decoration: none; }
+  #content a:hover { text-decoration: underline; }
+  #content strong { font-weight: 600; }
+  #content em { font-style: italic; }
+  #content code {
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+    font-size: 85%; padding: 0.2em 0.4em; background: rgba(175,184,193,0.2);
+    border-radius: 6px; color: #1f2328;
+  }
+  #content pre {
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+    font-size: 85%; line-height: 1.45; background: #f6f8fa; border-radius: 6px;
+    padding: 16px; overflow-x: auto; margin-bottom: 16px;
+  }
+  #content pre code { background: transparent; padding: 0; font-size: 100%; color: inherit; border-radius: 0; }
+  #content .code-wrap { position: relative; margin-bottom: 16px; }
+  #content .code-wrap pre { margin-bottom: 0; }
+  #content .copy-btn {
+    position: absolute; top: 8px; right: 8px;
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0;
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    color: #57606a; cursor: pointer; transition: background 0.1s, color 0.1s;
+  }
+  #content .copy-btn:hover { color: #1f2328; }
+  /* Show a border and green check after copying. */
+  #content .copy-btn.copied {
+    background: #f6f8fa; border-color: #d0d7de; color: #1a7f37;
+  }
+  #content .copy-btn.copied svg { stroke: currentColor; stroke-width: 1.2; }
+  #content blockquote { margin: 0 0 16px; padding: 0 1em; color: #57606a; border-left: 4px solid #d0d7de; }
+  #content blockquote > :last-child { margin-bottom: 0; }
+  #content ul, #content ol { margin-top: 0; margin-bottom: 16px; padding-left: 2em; }
+  #content li + li { margin-top: 0.25em; }
+  #content li > p { margin-top: 16px; }
+  #content table { border-collapse: collapse; width: 100%; margin-bottom: 16px; overflow: auto; display: block; }
+  #content table th { font-weight: 600; background: #f6f8fa; }
+  #content table th, #content table td { padding: 6px 13px; border: 1px solid #d0d7de; }
+  #content table tr:nth-child(2n) { background: #f6f8fa; }
+  #content img { max-width: 100%; height: auto; border-radius: 6px; box-sizing: content-box; background: #ffffff; }
+  #content hr { height: 4px; padding: 0; margin: 24px 0; background: #d0d7de; border: 0; border-radius: 2px; }
+  #content input[type="checkbox"] { margin-right: 0.5em; }
+  #content > :first-child { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span class="brand">MD Viewer</span>
+  <span id="roots"></span>
+  <button id="rootpick" onclick="openPicker()" title="Pick a folder…">…</button>
+  <span class="root" id="root" title=""></span>
+  <button id="rootopen" onclick="openFolder()" title="Open the selected folder in Finder" disabled>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>
+    </svg>
+    Open
+  </button>
+  <span class="count" id="count"></span>
+  <button id="claude-toggle" onclick="toggleClaude()"></button>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="search-wrap">
+      <input id="search" type="text" placeholder="Filter files…" autocomplete="off">
+    </div>
+    <div id="filelist"></div>
+  </div>
+
+  <div id="dragbar" title="Drag to resize"></div>
+
+  <div id="right">
+    <div id="toolbar">
+      <span class="filename" id="filename"></span>
+      <button id="rootedit" onclick="editFile()" title="Open the selected file in your editor" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z"/>
+        </svg>
+        Edit
+      </button>
+      <button id="refresh-btn" onclick="refreshFile()" title="Reload file" disabled>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z"/>
+        </svg>
+        Refresh
+      </button>
+      <select id="auto-select" onchange="setAutoRefresh(this.value)" title="Auto-refresh interval" disabled>
+        <option value="0">Auto-refresh off</option>
+        <option value="3">Every 3s</option>
+        <option value="5">Every 5s</option>
+        <option value="10">Every 10s</option>
+        <option value="30">Every 30s</option>
+      </select>
+      <span id="countdown"></span>
+    </div>
+
+    <div id="scroll">
+      <div id="placeholder">
+        <svg width="40" height="40" viewBox="0 0 16 16" fill="#8c959f">
+          <path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 8.75 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/>
+        </svg>
+        <p>Select a file</p>
+      </div>
+      <div id="viewer" style="display:none"><div id="content"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function actionFetch(url) {
+    return fetch(url, { method: 'POST', headers: { 'X-MD-Viewer-Token': '{{ACTION_TOKEN}}' } });
+  }
+  const listEl   = document.getElementById('filelist');
+  const searchEl = document.getElementById('search');
+  const rootEl   = document.getElementById('root');
+  const countEl  = document.getElementById('count');
+  const viewer   = document.getElementById('viewer');
+  const content  = document.getElementById('content');
+  const placeholder = document.getElementById('placeholder');
+  const filenameEl  = document.getElementById('filename');
+  const refreshBtn  = document.getElementById('refresh-btn');
+  const scrollEl    = document.getElementById('scroll');
+  const countdown   = document.getElementById('countdown');
+  const rootsEl     = document.getElementById('roots');
+  const autoSelect  = document.getElementById('auto-select');
+  const claudeBtn     = document.getElementById('claude-toggle');
+  const openBtn     = document.getElementById('rootopen');
+  const editBtn     = document.getElementById('rootedit');
+
+  let allFiles    = [];
+  let currentPath = null;
+  let currentRootDir = null;
+  let hideClaude  = true; // start with CLAUDE.md and AGENTS.md files filtered out
+  let autoSecs    = 0;
+  let autoInterval = null, countdownInterval = null, countdownSecs = 0;
+
+  function esc(s) {
+    return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function renderList(files) {
+    if (!files.length) {
+      listEl.innerHTML = '<div id="empty">No markdown files found</div>';
+      return;
+    }
+    listEl.innerHTML = files.map(f => {
+      const meta = [f.words + ' words', f.sizeHuman, f.mtimeAgo];
+      const hasTitle = f.title && f.title !== f.name;
+      return '<div class="file' + (f.path === currentPath ? ' active' : '') +
+        '" data-path="' + esc(f.path) + '">' +
+        '<div class="frow">' +
+          '<span class="ftitle">' + esc(hasTitle ? f.title : f.name) + '</span>' +
+          (hasTitle ? '<span class="fname">' + esc(f.name) + '</span>' : '') +
+        '</div>' +
+        '<div class="fdetail">' +
+          '<span class="fmeta">' + meta.map(m => '<span>' + esc(m) + '</span>').join('') + '</span>' +
+          (f.dir ? '<span class="fdir">' + esc(f.dir) + '/</span>' : '') +
+        '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  // Icons for showing or hiding instruction files.
+  const EYE_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.831.88 9.577.43 8.9a1.62 1.62 0 0 1 0-1.798c.45-.678 1.367-1.932 2.637-3.023C4.33 2.992 6.019 2 8 2ZM8 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 8 6Z"/></svg>';
+  const EYE_OFF_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M.143 2.31a.75.75 0 0 1 1.047-.167l14.5 10.5a.75.75 0 1 1-.88 1.214l-2.248-1.628C11.346 13.19 9.792 14 8 14c-1.981 0-3.67-.992-4.933-2.078C1.797 10.832.88 9.577.43 8.9a1.62 1.62 0 0 1 0-1.797c.353-.533 1.022-1.434 1.967-2.282L.31 3.357A.75.75 0 0 1 .143 2.31Zm3.386 3.378c-.819.736-1.413 1.514-1.748 2.014a.12.12 0 0 0 0 .136c.412.621 1.242 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.024 0 1.991-.357 2.844-.864l-1.512-1.095a2 2 0 0 1-2.81-2.034L3.53 5.688Zm4.95-1.18a2 2 0 0 1 1.595 2.087l3.444 2.494c.45-.508.81-1.01 1.062-1.39a.12.12 0 0 0 0-.137c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-.173 0-.343.01-.512.028Z"/></svg>';
+
+  // Copy (idle) / check (just copied) icons for the code-block copy button.
+  const COPY_SVG  = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+
+  // Keep copy buttons outside the scrolling code blocks.
+  function addCopyButtons() {
+    content.querySelectorAll('pre').forEach(pre => {
+      const wrap = document.createElement('div');
+      wrap.className = 'code-wrap';
+      pre.replaceWith(wrap);
+      wrap.appendChild(pre);
+
+      const btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.title = 'Copy';
+      btn.innerHTML = COPY_SVG;
+      btn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(pre.innerText.replace(/\n$/, ''));
+          btn.innerHTML = CHECK_SVG;
+          btn.classList.add('copied');
+          setTimeout(() => { btn.innerHTML = COPY_SVG; btn.classList.remove('copied'); }, 2000);
+        } catch (e) { /* clipboard unavailable or denied */ }
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  // Instruction files share one toggle, with case-insensitive filename matching.
+  const isInstructionFile = f => ['claude.md', 'agents.md'].includes(f.name.toLowerCase());
+
+  function applyFilter() {
+    const base = hideClaude ? allFiles.filter(f => !isInstructionFile(f)) : allFiles;
+    countEl.textContent = base.length + ' file' + (base.length === 1 ? '' : 's');
+    const q = searchEl.value.trim().toLowerCase();
+    renderList(q
+      ? base.filter(f => (f.path + ' ' + f.title).toLowerCase().includes(q))
+      : base);
+  }
+
+  function updateClaudeBtn() {
+    claudeBtn.classList.toggle('off', hideClaude);
+    claudeBtn.innerHTML = hideClaude ? EYE_OFF_SVG : EYE_SVG;
+    claudeBtn.title = hideClaude
+      ? 'CLAUDE.md and AGENTS.md files hidden: click to show them'
+      : 'CLAUDE.md and AGENTS.md files shown: click to hide them';
+  }
+  function toggleClaude() { hideClaude = !hideClaude; updateClaudeBtn(); applyFilter(); }
+
+  function renderRoots(presets) {
+    rootsEl.innerHTML = (presets || []).map(p =>
+      '<button class="rootbtn' + (p.active ? ' active' : '') + '"' +
+      (p.available ? '' : ' disabled') +
+      ' data-path="' + esc(p.path) + '" title="' + esc(p.path) + '">' +
+      esc(p.label) + '</button>').join('');
+  }
+
+  function applyFilesData(data) {
+    allFiles = data.files;
+    currentRootDir = data.root;
+    openBtn.disabled = !currentRootDir;
+    rootEl.textContent = data.root;
+    rootEl.title = data.root;
+    renderRoots(data.presets);
+    applyFilter(); // also updates the file count
+  }
+
+  async function loadFiles() {
+    const res = await fetch('/api/files');
+    applyFilesData(await res.json());
+  }
+
+  // Reset the viewer when the scan root changes: the open file no longer applies.
+  function resetViewer() {
+    currentPath = null;
+    document.title = 'MD Viewer';
+    filenameEl.textContent = '';
+    updateFileActions();
+    viewer.style.display = 'none';
+    placeholder.style.display = 'flex';
+    autoSelect.value = '0';
+    setAutoRefresh(0);
+  }
+
+  async function switchRoot(p) {
+    const res = await actionFetch('/api/root?path=' + encodeURIComponent(p));
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Could not switch folder'); return; }
+    resetViewer();
+    searchEl.value = '';
+    applyFilesData(data);
+  }
+
+  rootsEl.addEventListener('click', e => {
+    const b = e.target.closest('.rootbtn');
+    if (b && !b.disabled) switchRoot(b.dataset.path);
+  });
+
+  // Switch to the folder selected in the native picker.
+  async function openPicker() {
+    const res = await actionFetch('/api/pick');
+    const data = await res.json();
+    if (data.canceled) return;
+    if (data.error) { alert(data.error); return; }
+    resetViewer();
+    searchEl.value = '';
+    applyFilesData(data);
+  }
+
+  // Open the scan folder or edit the file currently on display.
+  function openFolder() { if (currentRootDir) actionFetch('/api/open'); }
+  function editFile()   { if (currentPath) actionFetch('/api/edit?path=' + encodeURIComponent(currentPath)); }
+
+  // File controls require a file on display; Open depends only on the folder.
+  function updateFileActions() {
+    editBtn.disabled = refreshBtn.disabled = autoSelect.disabled = !currentPath;
+  }
+
+  async function openFile(p, preserveScroll) {
+    const res = await fetch('/api/raw?path=' + encodeURIComponent(p), { cache: 'no-store' });
+    if (!res.ok) { content.innerHTML = '<p>Could not load file.</p>'; return; }
+    const text = await res.text();
+    const pos = preserveScroll ? scrollEl.scrollTop : 0;
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      content.textContent = 'Markdown rendering could not load. Check your connection and reload the page.';
+      placeholder.style.display = 'none';
+      viewer.style.display = 'block';
+      return;
+    }
+    content.innerHTML = DOMPurify.sanitize(marked.parse(text), {
+      USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form'], FORBID_ATTR: ['style']
+    });
+    addCopyButtons();
+    placeholder.style.display = 'none';
+    viewer.style.display = 'block';
+    const name = p.split('/').pop();
+    filenameEl.textContent = p;
+    document.title = name + ' · MD Viewer';
+    scrollEl.scrollTop = pos;
+    if (currentPath !== p) {
+      currentPath = p;
+      updateFileActions();
+      // refresh active highlight without rebuilding whole list
+      document.querySelectorAll('.file').forEach(el =>
+        el.classList.toggle('active', el.dataset.path === p));
+    }
+  }
+
+  function refreshFile() {
+    if (!currentPath) return;
+    refreshBtn.classList.add('spinning');
+    setTimeout(() => refreshBtn.classList.remove('spinning'), 600);
+    openFile(currentPath, true);
+    loadFiles(); // keep list details fresh too
+    if (autoSecs > 0) countdownSecs = autoSecs;
+  }
+
+  function setAutoRefresh(val) {
+    autoSecs = parseInt(val, 10);
+    clearInterval(autoInterval);
+    clearInterval(countdownInterval);
+    countdown.textContent = '';
+    if (autoSecs > 0 && currentPath) {
+      countdownSecs = autoSecs;
+      countdown.textContent = countdownSecs + 's';
+      countdownInterval = setInterval(() => {
+        countdownSecs--;
+        countdown.textContent = countdownSecs > 0 ? countdownSecs + 's' : 'now';
+        if (countdownSecs <= 0) countdownSecs = autoSecs;
+      }, 1000);
+      autoInterval = setInterval(() => openFile(currentPath, true), autoSecs * 1000);
+    }
+  }
+
+  listEl.addEventListener('click', e => {
+    const el = e.target.closest('.file');
+    if (el) openFile(el.dataset.path, false);
+  });
+  searchEl.addEventListener('input', applyFilter);
+
+  // Drag to resize the sidebar
+  const dragbar = document.getElementById('dragbar');
+  const sidebarEl = document.getElementById('sidebar');
+  const mainEl = document.getElementById('main');
+  dragbar.addEventListener('mousedown', e => {
+    e.preventDefault();
+    dragbar.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    const onMove = ev => {
+      const rect = mainEl.getBoundingClientRect();
+      let w = ev.clientX - rect.left;
+      w = Math.max(160, Math.min(w, rect.width - 200));
+      sidebarEl.style.flex = '0 0 ' + w + 'px';
+    };
+    const onUp = () => {
+      dragbar.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  updateClaudeBtn();
+  loadFiles();
+</script>
+</body>
+</html>
