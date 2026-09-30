@@ -1,6 +1,6 @@
 {
   "name": "md-now",
-  "version": "0.9.14",
+  "version": "0.9.15",
   "description": "A tiny, zero-dependency local Markdown browser. Scans a folder tree and renders Markdown.",
   "keywords": [
     "markdown",
@@ -42,6 +42,6 @@
     "dev": "node --watch --watch-path=server.js --watch-path=page.html server.js --no-open"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   }
 }

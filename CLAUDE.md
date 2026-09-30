@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code when working in this repository.
 
-MD Viewer is a local Markdown browser. Its npm package is `md-now`,
+MD Now is a local Markdown browser. Its npm package is `md-now`,
 with `md-now` and `mdv` commands.
 
 ## Development
@@ -59,7 +59,7 @@ Normalize picker results with `path.resolve` before storing the root.
 
 ## Viewer behavior
 
-The top bar contains the MD Viewer brand, Documents preset, folder picker, root
+The top bar contains the MD Now brand, Documents preset, folder picker, root
 path, Open button, file count, and instruction-file toggle. Open is enabled once
 a folder loads. The toggle hides both `CLAUDE.md` and `AGENTS.md` by default,
 matching filenames case-insensitively.

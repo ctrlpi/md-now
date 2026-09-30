@@ -12,6 +12,8 @@ const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'md-viewer-test-'));
 const home = path.join(sandbox, 'home');
 const root = path.join(home, 'Documents');
+fs.mkdirSync(root, { recursive: true });
+
 const other = path.join(home, 'other');
 const outside = path.join(sandbox, 'outside');
 const note = '# Hello world\nOne two three\n';
@@ -95,7 +97,7 @@ async function frontend(api) {
   let timerId = 0, now = 0;
   const requests = [];
   const context = vm.createContext({
-    document: { getElementById: element, querySelectorAll: () => [], title: '' },
+    document: { getElementById: element, querySelectorAll: () => [], title: '', body: { classList: { contains: () => false, toggle: () => {}, add: () => {}, remove: () => {} } } },
     marked: { parse: text => text },
     DOMPurify: { sanitize: text => text }, // Integration is checked separately in a real browser.
     console,
@@ -134,7 +136,7 @@ const tests = [
     const res = await api.request('/');
     assert.equal(res.status, 200);
     assert.match(res.headers['Content-Type'], /text\/html/);
-    assert.match(res.body, /<title>MD Viewer<\/title>/);
+    assert.match(res.body, /<title>MD Now<\/title>/);
     assert.equal((await api.request('/unknown')).status, 404);
   }],
   ['Recursive Markdown scanning', async () => {
@@ -222,20 +224,22 @@ const tests = [
   }],
   ['Instruction-file toggle and search', async () => {
     const ui = await frontend(backend());
-    assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
-    assert(!ui.element('filelist').innerHTML.includes('agents.md'));
-    assert.equal(ui.element('count').textContent, '5 files');
-    ui.run('toggleClaude()');
     assert(ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
     assert.equal(ui.element('count').textContent, '7 files');
+    ui.run('toggleClaude()');
+    assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
+    assert(!ui.element('filelist').innerHTML.includes('agents.md'));
+    assert.equal(ui.element('count').textContent, '5 files');
     ui.element('search').value = 'HELLO WORLD';
     ui.run('applyFilter()');
     assert(ui.element('filelist').innerHTML.includes('note.md'));
     assert(!ui.element('filelist').innerHTML.includes('upper.MD'));
     ui.element('search').value = 'agents';
-    ui.run('toggleClaude()');
+    ui.run('applyFilter()');
     assert.match(ui.element('filelist').innerHTML, /No markdown files found/);
+    ui.run('toggleClaude()');
+    assert(ui.element('filelist').innerHTML.includes('agents.md'));
   }],
   ['Auto-refresh cadence, countdown, and cleanup', async () => {
     const ui = await frontend(backend());
@@ -322,6 +326,46 @@ const tests = [
     assert.equal(api.process.exitCode, 1);
     assert.match(api.errors[0], /already in use/);
   }],
+  ['Favorites addition and removal', async () => {
+    // Reset favorites file state before test
+    const ctrlpi = path.join(home, ".ctrlpi");
+    const favFile = path.join(ctrlpi, "md-now.json");
+    if (fs.existsSync(favFile)) fs.rmSync(favFile);
+    const api = backend();
+    const ui = await frontend(api);
+
+    // By default, Documents should be the only favorite
+    let rootsHtml = ui.element('roots').innerHTML;
+    assert(rootsHtml.includes('>Documents</button>'), "Missing Documents: " + rootsHtml);
+    assert(!rootsHtml.includes('>other</button>'));
+    assert.equal(ui.run("isFavorite"), true); // Started in Documents
+    
+    // Remove Documents from favorites
+    await ui.run("toggleFavorite()");
+
+
+
+    rootsHtml = ui.element('roots').innerHTML;
+    assert(!rootsHtml.includes('>Documents</button>'), "Should have removed Documents: " + rootsHtml);
+    assert.equal(ui.run("isFavorite"), false);
+    
+    // Add Documents back
+    await ui.run("toggleFavorite()");
+    rootsHtml = ui.element('roots').innerHTML;
+    assert(rootsHtml.includes('>Documents</button>'));
+    assert.equal(ui.run("isFavorite"), true);
+    
+    // Switch to 'other' folder
+    await ui.run(`switchRoot('${other.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`);
+    assert.equal(ui.run("isFavorite"), false);
+    
+    // Favorite 'other'
+    await ui.run("toggleFavorite()");
+    rootsHtml = ui.element('roots').innerHTML;
+    assert(rootsHtml.includes('>Documents</button>'));
+    assert(rootsHtml.includes('>other</button>'));
+    assert.equal(ui.run("isFavorite"), true);
+  }],
   ['Rendering uses sanitizer and fails closed if unavailable', async () => {
     const ui = await frontend(backend());
     ui.run("DOMPurify.sanitize = (html, options) => { if (!options.USE_PROFILES.html) throw Error('Missing HTML profile'); return 'sanitized content'; }");
@@ -330,6 +374,27 @@ const tests = [
     ui.run('DOMPurify = undefined');
     await ui.run("openFile('note.md')");
     assert.match(ui.element('content').textContent, /could not load/);
+  }],
+
+  ['Command line file opening', async () => {
+    const fileToOpen = path.join(root, 'note.md');
+
+    const api = backend({}, [fileToOpen, "--port", "9234"]);
+
+    if (api.process.exitCode !== undefined) console.log("BACKEND CRASHED CODE", api.process.exitCode, api.errors);
+
+
+    const ui = await frontend(api);
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+    for (let i = 0; i < 10; i++) if (!ui.element("filename").textContent) await settle();
+
+    await ui.tick(1);
+
+    
+    // It should have opened the folder containing note.md
+    assert.equal(ui.element('root').textContent, root);
+    // It should have opened note.md
+    assert.equal(ui.element('filename').textContent, 'note.md');
   }],
 ];
 
