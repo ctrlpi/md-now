@@ -1,4 +1,10 @@
-# MD Viewer
+# MD Now
+
+[![Node 20+](https://img.shields.io/badge/node-20%2B-blue.svg)](https://nodejs.org/)
+[![Version 0.9.15](https://img.shields.io/badge/version-0.9.15-blue.svg)](https://github.com/ctrlpi/md-now/tags)
+![Dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Status: Beta](https://img.shields.io/badge/status-Beta-red.svg)
 
 A tiny, **zero-dependency** local Markdown browser. Point it at a folder, and it scans
 that folder (and all sub-folders) for Markdown files, lists them in a sidebar with handy
@@ -6,7 +12,7 @@ metadata, and renders the selected file.
 
 ## Requirements
 
-- Node.js 22 or newer is recommended. The server uses only Node built-ins.
+- Node.js 20 or newer is recommended. The server uses only Node built-ins.
 - A modern browser with internet access to load marked and DOMPurify from CDNs.
 - macOS for the native folder picker and Finder actions. On other systems, select
   a folder through the command line; set `MD_EDITOR` to an installed editor command.
@@ -58,8 +64,7 @@ ROOT=~/wiki PORT=3000 npx md-now
   stripped), size, modified time ("3h ago"), and word count, sorted newest first.
 - **Instant filter** box to narrow the file list.
 - **Faithful rendering** of headings, code, tables, blockquotes, task lists, etc.
-- **Folder switcher**: a one-click button for Documents,
-  plus a native folder picker to choose another folder.
+- **Favorites & Folder switcher**: Save your favorite folders (stored in `~/.ctrlpi/md-now.json`) for quick access as clickable pills, alongside a native folder picker.
 - **Auto-refresh**: reload the open file every 3/5/10/30s to watch a doc as you edit it.
 
 ## Security
