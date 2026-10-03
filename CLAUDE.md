@@ -8,12 +8,12 @@ with `md-now` and `mdv` commands.
 ## Development
 
 ```bash
-node server.js [root-dir] [--port PORT] [--no-open]
+node server.js [root-dir] [--port PORT] [--skip-open]
 npm run dev
 npm test
 ```
 
-Normal startup opens the default browser unless `--no-open` is supplied.
+Normal startup opens the default browser unless `--skip-open` is supplied.
 Development mode restarts on edits without opening a browser. The port defaults to
 `$PORT`, then `8181`. The scan root defaults
 to `$ROOT`, then Documents, then home. The server binds to `127.0.0.1`.

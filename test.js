@@ -64,7 +64,15 @@ function backend(env = {}, args = [root, '--port', '9234']) {
           const action = /^\/api\/(root|pick|open|edit)(\?|$)/.test(url);
           const headers = { host: 'localhost:9234', 'x-md-viewer-token': token };
           for (const [key, value] of Object.entries(options.headers || {})) headers[key.toLowerCase()] = value;
-          handler({ url, method: options.method || (action ? 'POST' : 'GET'), headers }, {
+          handler({ 
+            url, 
+            method: options.method || (action ? 'POST' : 'GET'), 
+            headers,
+            on(event, callback) {
+              if (event === 'data' && options.body) callback(Buffer.from(options.body));
+              if (event === 'end') setImmediate(callback);
+            }
+          }, {
             writeHead(status, headers = {}) { response.status = status; response.headers = headers; },
             end(body = '') { resolve({ ...response, body, json: () => JSON.parse(body) }); },
           });
@@ -90,6 +98,7 @@ async function frontend(api) {
       value: '', textContent: '', innerHTML: '', style: {}, disabled: true, scrollTop: 0,
       classList: { add() {}, remove() {}, toggle() {} },
       addEventListener() {}, querySelectorAll: () => [],
+      querySelector: () => ({ textContent: '' }),
     });
     return elements.get(id);
   }
@@ -97,12 +106,13 @@ async function frontend(api) {
   let timerId = 0, now = 0;
   const requests = [];
   const context = vm.createContext({
+    location: { reload: () => context.reloaded = true },
     document: { getElementById: element, querySelectorAll: () => [], title: '', body: { classList: { contains: () => false, toggle: () => {}, add: () => {}, remove: () => {} } } },
     marked: { parse: text => text },
     DOMPurify: { sanitize: text => text }, // Integration is checked separately in a real browser.
     console,
     fetch: async (url, options = {}) => {
-      requests.push(url);
+      if (url !== '/api/ping') requests.push(url);
       const res = await api.request(url, { ...options, method: options.method || 'GET' });
       return { ok: res.status === 200, json: res.json, text: async () => res.body };
     },
@@ -116,6 +126,7 @@ async function frontend(api) {
   await settle();
   return {
     element, timers, requests,
+    get reloaded() { return context.reloaded; },
     run: code => vm.runInContext(code, context),
     async tick(seconds) {
       for (let i = 0; i < seconds; i++) {
@@ -248,7 +259,7 @@ const tests = [
     assert.equal(ui.element('auto-select').disabled, false);
     for (const seconds of [3, 5, 10, 30]) {
       ui.run('setAutoRefresh(' + seconds + ')');
-      assert.equal(ui.timers.size, 2);
+      assert.equal(ui.timers.size, 3);
       assert.equal(ui.element('countdown').textContent, seconds + 's');
       const before = ui.requests.length;
       await ui.tick(seconds - 1);
@@ -260,14 +271,14 @@ const tests = [
       assert.equal(ui.requests[before], '/api/raw?path=note.md');
     }
     ui.run('setAutoRefresh(0)');
-    assert.equal(ui.timers.size, 0);
+    assert.equal(ui.timers.size, 1);
     assert.equal(ui.element('countdown').textContent, '');
     const before = ui.requests.length;
     await ui.tick(30);
     assert.equal(ui.requests.length, before);
     ui.run('setAutoRefresh(3)');
     await ui.run('switchRoot(' + JSON.stringify(other) + ')');
-    assert.equal(ui.timers.size, 0);
+    assert.equal(ui.timers.size, 1);
     assert.equal(ui.element('countdown').textContent, '');
     assert.equal(ui.element('refresh-btn').disabled, true);
   }],
@@ -320,7 +331,7 @@ const tests = [
       assert.throws(() => backend({}, [root, '--port', port]), /Invalid port/);
     }
     assert.throws(() => backend({}, [root, '--port']), /Invalid port/);
-    const api = backend({}, [root, '--port', '9234', '--no-open']);
+    const api = backend({}, [root, '--port', '9234', '--skip-open']);
     assert.equal(api.calls.length, 0);
     api.fail({ code: 'EADDRINUSE' });
     assert.equal(api.process.exitCode, 1);
@@ -395,6 +406,86 @@ const tests = [
     assert.equal(ui.element('root').textContent, root);
     // It should have opened note.md
     assert.equal(ui.element('filename').textContent, 'note.md');
+  }],
+  ['Online edit and save', async () => {
+    const api = backend();
+    const ui = await frontend(api);
+    await ui.run("openFile('note.md')");
+    
+    await ui.run("startEditMode()");
+    assert.equal(ui.element('editor-textarea').value, '# Hello world\nOne two three\n');
+    
+    ui.element('editor-textarea').value = '# Updated Hello';
+    await ui.run("saveEdit()");
+    
+    assert.equal(fs.readFileSync(path.join(root, 'note.md'), 'utf8'), '# Updated Hello');
+  }],
+
+  ['Subfolder filter and parent directory', async () => {
+    const ui = await frontend(backend());
+    await ui.run("toggleSubfolders()"); // sets hideSubfolders = true
+    
+    const html = ui.element('filelist').innerHTML;
+    assert.match(html, /note\.md/);
+    assert.match(html, /<span class="folder-name">nested\/<\/span>/);
+    assert.match(html, /<span class="folder-name">\.\.\/<\/span>/);
+  }],
+
+  ['iCloud dataless files are skipped for read but listed', async () => {
+    write(root, 'icloud.md', 'this is dataless');
+    const fs = require('fs');
+    const originalStatSync = fs.statSync;
+    const originalReadFileSync = fs.readFileSync;
+    
+    fs.statSync = function(p) {
+      const stat = originalStatSync.apply(this, arguments);
+      if (p.endsWith('icloud.md')) {
+        stat.blocks = 0;
+      }
+      return stat;
+    };
+    let readCount = 0;
+    fs.readFileSync = function(p) {
+      if (p.endsWith('icloud.md')) readCount++;
+      return originalReadFileSync.apply(this, arguments);
+    };
+    
+    try {
+      const ui = await frontend(backend());
+      
+      const html = ui.element('filelist').innerHTML;
+      assert.match(html, /icloud\.md/);
+      assert.match(html, /In the cloud/);
+      assert.equal(readCount, 0);
+    } finally {
+      fs.statSync = originalStatSync;
+      fs.readFileSync = originalReadFileSync;
+      fs.rmSync(path.join(root, 'icloud.md'));
+    }
+  }],
+
+  ['Server disconnect banner and auto-reload', async () => {
+    const api = backend();
+    const ui = await frontend(api);
+    assert.notEqual(ui.element('disconnect-banner').style.display, 'block');
+
+    // Simulate server dying
+    const originalRequest = api.request;
+    api.request = async (url, opts) => {
+      if (api.kill) throw new Error("Connection refused");
+      return originalRequest(url, opts);
+    };
+
+    api.kill = true;
+    await ui.tick(3);
+    assert.equal(ui.element('disconnect-banner').style.display, 'block');
+    assert.equal(ui.reloaded, undefined);
+
+    // Server comes back
+    api.kill = false;
+    await ui.tick(3);
+    assert.equal(ui.element('disconnect-banner').style.display, 'none');
+    assert.equal(ui.reloaded, true);
   }],
 ];
 

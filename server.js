@@ -8,7 +8,7 @@
  * The server uses Node built-ins; the browser loads marked from a CDN.
  *
  * Usage:
- *   node server.js [root-dir] [--port 8080] [--no-open]
+ *   node server.js [root-dir] [--port 8080] [--skip-open]
  *   ROOT and PORT environment variables provide defaults.
  */
 
@@ -34,10 +34,10 @@ let portArg = null;
 let noOpen = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--help' || args[i] === '-h') {
-    console.log('Usage: md-viewer [root-dir] [--port PORT] [--no-open]');
+    console.log('Usage: md-viewer [root-dir] [--port PORT] [--skip-open]');
     console.log('\nOptions:');
     console.log('  -p, --port <PORT>  Port to listen on (default: $PORT or 8181)');
-    console.log('  --no-open          Start without opening a browser');
+    console.log('  --skip-open          Start without opening a browser');
     console.log('  -v, --version      Show version');
     console.log('  -h, --help         Show help');
     process.exit(0);
@@ -45,7 +45,7 @@ for (let i = 0; i < args.length; i++) {
     console.log(require('./package.json').version);
     process.exit(0);
   } else if (args[i] === '--port' || args[i] === '-p') portArg = args[++i] ?? '';
-  else if (args[i] === '--no-open') noOpen = true;
+  else if (args[i] === '--skip-open') noOpen = true;
   else if (!rootArg) rootArg = args[i];
 }
 
@@ -179,10 +179,15 @@ function listFiles() {
   walk(currentRoot, files);
   const result = [];
   for (const full of files) {
-    let stat, content;
+    let stat, content = '';
+    let isDataless = false;
     try {
       stat = fs.statSync(full);
-      content = fs.readFileSync(full, 'utf8');
+      // Skip reading iCloud dataless files to prevent hanging the server
+      isDataless = stat.size > 0 && stat.blocks === 0;
+      if (!isDataless) {
+        content = fs.readFileSync(full, 'utf8');
+      }
     } catch { continue; }
     const rel = path.relative(currentRoot, full);
     const meta = inspect(content);
@@ -197,6 +202,7 @@ function listFiles() {
       title: meta.title,
       words: meta.words,
       lines: meta.lines,
+      isDataless: isDataless
     });
   }
   result.sort((a, b) => b.mtime - a.mtime); // most recently modified first
@@ -234,12 +240,40 @@ const server = http.createServer((req, res) => {
   }
   const parsed = new URL(req.url, 'http://localhost');
   const pathname = parsed.pathname;
-  const action = ['/api/root', '/api/pick', '/api/open', '/api/edit'].includes(pathname);
+  const action = ['/api/root', '/api/pick', '/api/open', '/api/edit', '/api/save'].includes(pathname);
   if (action && req.method !== 'POST') {
     res.writeHead(405, { Allow: 'POST' }); res.end('Use POST'); return;
   }
   if (action && req.headers['x-md-viewer-token'] !== ACTION_TOKEN) {
     res.writeHead(403); res.end('Forbidden request'); return;
+  }
+  if (pathname === '/api/ping') {
+    res.writeHead(200); res.end('ok');
+    return;
+  }
+
+  if (pathname === '/api/save') {
+    const full = safeResolve(parsed.searchParams.get('path'));
+    if (!full) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Bad path' }));
+      return;
+    }
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      fs.writeFile(full, body, 'utf8', (err) => {
+        if (err) {
+          console.error('save failed:', err);
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'Save failed' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+      });
+    });
+    return;
   }
 
   if (pathname === '/') {
