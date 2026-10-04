@@ -913,7 +913,7 @@
   editorTextarea.addEventListener('input', () => {
     if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
       content.innerHTML = DOMPurify.sanitize(marked.parse(editorTextarea.value), {
-        USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form'], FORBID_ATTR: ['style']
+        USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form']
       });
       addCopyButtons();
     }
@@ -934,7 +934,7 @@
       return;
     }
     content.innerHTML = DOMPurify.sanitize(marked.parse(text), {
-      USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form'], FORBID_ATTR: ['style']
+      USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form']
     });
     addCopyButtons();
     placeholder.style.display = 'none';
