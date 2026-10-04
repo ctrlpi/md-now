@@ -184,7 +184,7 @@ function listFiles() {
     try {
       stat = fs.statSync(full);
       // Skip reading iCloud dataless files to prevent hanging the server
-      isDataless = stat.size > 0 && stat.blocks === 0;
+      isDataless = process.platform === 'darwin' && stat.size > 0 && stat.blocks === 0;
       if (!isDataless) {
         content = fs.readFileSync(full, 'utf8');
       }

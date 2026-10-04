@@ -4,6 +4,16 @@
 // HTTP dispatch, OS commands, DOM, and timers are mocked; no applications launch.
 const assert = require('assert').strict;
 const fs = require('fs');
+// Windows returns blocks=0 (or undefined). Since we mock process.platform='darwin' in tests,
+// this falsely triggers the iCloud dataless check. We patch it here for the test environment.
+if (process.platform === 'win32') {
+  const origStatSync = fs.statSync;
+  fs.statSync = function() {
+    const stat = origStatSync.apply(this, arguments);
+    if (stat.blocks === 0 || stat.blocks === undefined) stat.blocks = 8;
+    return stat;
+  };
+}
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
