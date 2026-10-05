@@ -63,14 +63,14 @@
   }
   #rootopen:hover, #favorite-btn:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
   #rootopen:disabled, #favorite-btn:disabled { opacity: 0.45; cursor: not-allowed; background: #fff; border-color: rgba(31,35,40,0.15); }
-  #claude-toggle, #subfolder-toggle {
+  #code-toggle, #claude-toggle, #subfolder-toggle {
     display: inline-flex; align-items: center; justify-content: center;
     color: #57606a; background: #fff; border: 1px solid rgba(31,35,40,0.15);
     border-radius: 6px; padding: 4px 7px; cursor: pointer; flex-shrink: 0; margin-left: 2px;
   }
-  #claude-toggle:hover, #subfolder-toggle:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
-  #claude-toggle.off, #subfolder-toggle.off { color: #0969da; background: #ddf4ff; border-color: #54aeff; }
-  #claude-toggle svg, #subfolder-toggle svg { display: block; }
+  #code-toggle:hover, #claude-toggle:hover, #subfolder-toggle:hover { background: #f3f4f6; border-color: rgba(31,35,40,0.3); }
+  #code-toggle.off, #claude-toggle.off, #subfolder-toggle.off { color: #0969da; background: #ddf4ff; border-color: #54aeff; }
+  #code-toggle svg, #claude-toggle svg, #subfolder-toggle svg { display: block; }
 
   /* Layout */
   #main { flex: 1; display: flex; min-height: 0; }
@@ -190,7 +190,7 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     pointer-events: none;
   }
-  #theme-toggle .btn-text, #claude-toggle .btn-text, #subfolder-toggle .btn-text {
+  #theme-toggle .btn-text, #code-toggle .btn-text, #claude-toggle .btn-text, #subfolder-toggle .btn-text {
     left: auto;
     right: 0;
     transform: none;
@@ -215,6 +215,7 @@
 
   #scroll { flex: 1; overflow-y: auto; }
   #viewer { max-width: 800px; margin: 0 auto; padding: 32px 32px 80px; }
+  #viewer.full-width { max-width: none; padding: 16px 16px 80px; }
   #placeholder {
     height: 100%; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 8px; color: #8c959f;
@@ -294,7 +295,7 @@
   body.dark #topbar, body.dark #toolbar, body.dark #search-wrap, body.dark #content h1, body.dark #content h2, body.dark #content table th, body.dark #content table td, body.dark #content hr {
     border-color: #30363d;
   }
-  body.dark .rootbtn, body.dark #rootpick, body.dark #rootopen, body.dark #favorite-btn, body.dark #claude-toggle, body.dark #subfolder-toggle, body.dark #theme-toggle, body.dark #toolbar button, body.dark #auto-select {
+  body.dark .rootbtn, body.dark #rootpick, body.dark #rootopen, body.dark #favorite-btn, body.dark #code-toggle, body.dark #claude-toggle, body.dark #subfolder-toggle, body.dark #theme-toggle, body.dark #toolbar button, body.dark #auto-select {
     color: #c9d1d9;
     background: #21262d;
     border-color: rgba(240,246,252,0.1);
@@ -302,7 +303,7 @@
   body.dark .rootbtn.drag-over-left::before, body.dark .rootbtn.drag-over-right::after {
     background: #54aeff;
   }
-  body.dark .rootbtn:hover, body.dark #rootpick:hover, body.dark #rootopen:hover, body.dark #favorite-btn:hover, body.dark #claude-toggle:hover, body.dark #subfolder-toggle:hover, body.dark #theme-toggle:hover, body.dark #toolbar button:hover {
+  body.dark .rootbtn:hover, body.dark #rootpick:hover, body.dark #rootopen:hover, body.dark #favorite-btn:hover, body.dark #code-toggle:hover, body.dark #claude-toggle:hover, body.dark #subfolder-toggle:hover, body.dark #theme-toggle:hover, body.dark #toolbar button:hover {
     background: #30363d;
     border-color: rgba(240,246,252,0.2);
   }
@@ -311,7 +312,7 @@
     border-color: rgba(56,139,253,0.4);
     color: #58a6ff;
   }
-  body.dark #claude-toggle.off, #subfolder-toggle.off {
+  body.dark #code-toggle.off, body.dark #claude-toggle.off, body.dark #subfolder-toggle.off {
     color: #58a6ff;
     background: rgba(56,139,253,0.15);
     border-color: rgba(56,139,253,0.4);
@@ -409,6 +410,7 @@
     <svg width="14" height="14" viewBox="0 0 16 16" fill="#d29922"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75ZM1.5 2.75c0-.138.112-.25.25-.25h2.834c.148 0 .285.074.366.196l.9 1.2A1.75 1.75 0 0 0 7.25 4.5h7c.138 0 .25.112.25.25v.75H1.5V2.75ZM1.5 7v6.25c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V7H1.5Z"/></svg>
     <span class="btn-text">Open folder</span>
   </button>
+  <button id="code-toggle" onclick="toggleCode()"></button>
   <button id="claude-toggle" onclick="toggleClaude()"></button>
   <button id="subfolder-toggle" onclick="toggleSubfolders()"></button>
   <button id="theme-toggle" onclick="toggleTheme()"></button>
@@ -526,6 +528,7 @@
   let currentRootDir = null;
   let homeDir = null;
   let hideClaude = typeof localStorage !== 'undefined' && localStorage.getItem('hideClaude') === 'true';
+  let hideData = typeof localStorage !== 'undefined' && localStorage.getItem('hideData') === 'true';
   let hideSubfolders = typeof localStorage !== 'undefined' && localStorage.getItem('hideSubfolders') === 'true';
   const subfolderBtn = document.getElementById('subfolder-toggle');
   let autoSecs    = 0;
@@ -545,7 +548,8 @@
       return;
     }
     html += files.map(f => {
-      const wordCountOrCloud = f.isDataless ? 'In the cloud' : f.words + ' words';
+      const isJson = f.name.toLowerCase().endsWith('.json');
+      const wordCountOrCloud = f.isDataless ? 'In the cloud' : f.words + (isJson ? ' fields' : ' words');
       const meta = [wordCountOrCloud, f.sizeHuman, f.mtimeAgo];
       const hasTitle = f.title && f.title !== f.name;
       return '<div class="file' + (f.path === currentPath ? ' active' : '') +
@@ -573,8 +577,10 @@
   }
 
   // Icons for showing or hiding instruction files.
-  const EYE_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="#0969da"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.831.88 9.577.43 8.9a1.62 1.62 0 0 1 0-1.798c.45-.678 1.367-1.932 2.637-3.023C4.33 2.992 6.019 2 8 2ZM8 6a2 2 0 1 0-.001 3.999A2 2 0 0 0 8 6Z"/></svg>';
-  const EYE_OFF_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="#cf222e"><path d="M.143 2.31a.75.75 0 0 1 1.047-.167l14.5 10.5a.75.75 0 1 1-.88 1.214l-2.248-1.628C11.346 13.19 9.792 14 8 14c-1.981 0-3.67-.992-4.933-2.078C1.797 10.832.88 9.577.43 8.9a1.62 1.62 0 0 1 0-1.797c.353-.533 1.022-1.434 1.967-2.282L.31 3.357A.75.75 0 0 1 .143 2.31Zm3.386 3.378c-.819.736-1.413 1.514-1.748 2.014a.12.12 0 0 0 0 .136c.412.621 1.242 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.024 0 1.991-.357 2.844-.864l-1.512-1.095a2 2 0 0 1-2.81-2.034L3.53 5.688Zm4.95-1.18a2 2 0 0 1 1.595 2.087l3.444 2.494c.45-.508.81-1.01 1.062-1.39a.12.12 0 0 0 0-.137c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-.173 0-.343.01-.512.028Z"/></svg>';
+  const LLM_SVG = `<svg width="16" height="16" viewBox="0 0 16 16" fill="#0969da">  <text x="8" y="8" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">LLM</text></svg>`;
+  const CODE_SVG = `<svg width="16" height="16" viewBox="0 0 16 16" fill="#0969da">  <text x="8" y="4" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">JSON</text>  <text x="8" y="12" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">TXT</text></svg>`;
+  const CODE_OFF_SVG = `<svg width="16" height="16" viewBox="0 0 16 16" fill="#cf222e">  <text x="8" y="4" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">JSON</text>  <text x="8" y="12" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">TXT</text>  <line x1="1" y1="15" x2="15" y2="1" stroke="#cf222e" stroke-width="1.5"/></svg>`;
+  const LLM_OFF_SVG = `<svg width="16" height="16" viewBox="0 0 16 16" fill="#cf222e">  <text x="8" y="8" font-size="7.5" font-family="'Arial Narrow', 'SF Pro Condensed', 'Roboto Condensed', sans-serif" font-stretch="condensed" font-weight="900" text-anchor="middle" dominant-baseline="central">LLM</text>  <line x1="1" y1="15" x2="15" y2="1" stroke="#cf222e" stroke-width="1.5"/></svg>`;
   const FOLD_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="#cf222e"><path d="M10.896 2H8.75V.75a.75.75 0 0 0-1.5 0V2H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896A.25.25 0 0 0 10.896 2ZM8.75 15.25a.75.75 0 0 1-1.5 0V14H5.104a.25.25 0 0 1-.177-.427l2.896-2.896a.25.25 0 0 1 .354 0l2.896 2.896a.25.25 0 0 1-.177.427H8.75v1.25Zm-6.5-6.5a.75.75 0 0 0 0-1.5h11.5a.75.75 0 0 0 0 1.5H2.25Z"/></svg>';
   const UNFOLD_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="#0969da"><path d="M8.177 1.87a.25.25 0 0 0-.354 0L4.927 4.766a.25.25 0 0 0 .177.427h2.146v1.25a.75.75 0 0 0 1.5 0V5.193h2.146a.25.25 0 0 0 .177-.427L8.177 1.87ZM2.25 8.75a.75.75 0 0 1 0-1.5h11.5a.75.75 0 0 1 0 1.5H2.25Zm8.646 2.057h-2.146v1.25a.75.75 0 0 0-1.5 0v-1.25H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896a.25.25 0 0 0-.177-.427Z"/></svg>';
 
@@ -610,8 +616,12 @@
   // Instruction files share one toggle, with case-insensitive filename matching.
   const isInstructionFile = f => ['claude.md', 'agents.md'].includes(f.name.toLowerCase());
 
+  const isDataFile = f => f.name.toLowerCase().endsWith('.json') || f.name.toLowerCase().endsWith('.txt');
+
   function applyFilter() {
-    let base = hideClaude ? allFiles.filter(f => !isInstructionFile(f)) : allFiles;
+    let base = allFiles;
+    if (hideClaude) base = base.filter(f => !isInstructionFile(f));
+    if (hideData) base = base.filter(f => !isDataFile(f));
     
     const q = searchEl.value.trim().toLowerCase();
     if (q) {
@@ -641,10 +651,23 @@
     renderList(displayFiles, folders);
   }
 
+  
+  function updateCodeBtn() {
+    const codeBtn = document.getElementById('code-toggle');
+    codeBtn.classList.toggle('off', hideData);
+    const text = (hideData ? 'Show' : 'Hide') + ' data files (.json, .txt)';
+    codeBtn.innerHTML = (hideData ? CODE_OFF_SVG : CODE_SVG) + '<span class="btn-text">' + text + '</span>';
+  }
+  function toggleCode() { 
+    hideData = !hideData; 
+    if (typeof localStorage !== 'undefined') localStorage.setItem('hideData', hideData);
+    updateCodeBtn(); applyFilter(); 
+  }
+
   function updateClaudeBtn() {
     claudeBtn.classList.toggle('off', hideClaude);
     const text = (hideClaude ? 'Show' : 'Hide') + ' LLM instruction files (CLAUDE.md, AGENTS.md)';
-    claudeBtn.innerHTML = (hideClaude ? EYE_OFF_SVG : EYE_SVG) + '<span class="btn-text">' + text + '</span>';
+    claudeBtn.innerHTML = (hideClaude ? LLM_OFF_SVG : LLM_SVG) + '<span class="btn-text">' + text + '</span>';
   }
   function toggleClaude() { 
     hideClaude = !hideClaude; 
@@ -777,6 +800,7 @@
     filenameEl.textContent = '';
     updateFileActions();
     viewer.style.display = 'none';
+    viewer.classList.remove('full-width');
     placeholder.style.display = 'flex';
     autoSelect.value = '0';
     setAutoRefresh(0);
@@ -933,10 +957,22 @@
       viewer.style.display = 'block';
       return;
     }
-    content.innerHTML = DOMPurify.sanitize(marked.parse(text), {
-      USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form']
-    });
-    addCopyButtons();
+    const lowerP = p.toLowerCase();
+    if (lowerP.endsWith('.json') || lowerP.endsWith('.txt')) {
+      viewer.classList.add('full-width');
+      let outText = text;
+      if (lowerP.endsWith('.json')) {
+        try { outText = JSON.stringify(JSON.parse(text), null, 3); } catch (e) {}
+      }
+      outText = outText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      content.innerHTML = '<pre style="padding:8px;overflow:auto;background:var(--inline-bg);border-radius:6px;font-family:monospace;white-space:pre-wrap;word-break:break-all;"><code>' + outText + '</code></pre>';
+    } else {
+      viewer.classList.remove('full-width');
+      content.innerHTML = DOMPurify.sanitize(marked.parse(text), {
+        USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form']
+      });
+      addCopyButtons();
+    }
     placeholder.style.display = 'none';
     viewer.style.display = 'block';
     const name = p.split('/').pop();
@@ -1041,6 +1077,7 @@
   updateThemeBtn();
 
   updateClaudeBtn();
+  updateCodeBtn();
   updateSubfolderBtn();
 
   let isDisconnected = false;

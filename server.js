@@ -120,7 +120,7 @@ function setRoot(rel) {
   return null;
 }
 
-const MD_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd']);
+const MD_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd', '.json', '.txt']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '.next', '.cache', 'venv']);
 
 // Helpers
@@ -143,7 +143,7 @@ function timeAgo(ms) {
 }
 
 // Use the first non-empty line as the title and count words and lines.
-function inspect(content) {
+function inspect(content, ext) {
   const lines = content.split(/\r?\n/);
   let title = '';
   for (const line of lines) {
@@ -153,7 +153,15 @@ function inspect(content) {
     title = (h ? h[1] : t).replace(/[#*`_>~]/g, '').trim();
     if (title) break;
   }
-  const words = (content.match(/\S+/g) || []).length;
+  let words = 0;
+  if (ext === '.json') {
+    try {
+      const obj = JSON.parse(content);
+      words = Array.isArray(obj) ? obj.length : (obj && typeof obj === 'object' ? Object.keys(obj).length : 0);
+    } catch(e) {}
+  } else {
+    words = (content.match(/\S+/g) || []).length;
+  }
   return { title, words, lines: lines.length };
 }
 
@@ -190,7 +198,8 @@ function listFiles() {
       }
     } catch { continue; }
     const rel = path.relative(currentRoot, full);
-    const meta = inspect(content);
+    const ext = path.extname(full).toLowerCase();
+    const meta = inspect(content, ext);
     result.push({
       path: rel.split(path.sep).join('/'),
       name: path.basename(full),
@@ -199,7 +208,7 @@ function listFiles() {
       sizeHuman: humanSize(stat.size),
       mtime: stat.mtimeMs,
       mtimeAgo: timeAgo(stat.mtimeMs),
-      title: meta.title,
+      title: full.toLowerCase().match(/\.(json|txt)$/) ? "" : meta.title,
       words: meta.words,
       lines: meta.lines,
       isDataless: isDataless

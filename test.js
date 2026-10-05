@@ -162,7 +162,7 @@ const tests = [
   }],
   ['Recursive Markdown scanning', async () => {
     const files = (await backend().request('/api/files')).json().files;
-    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'upper.MD'].sort());
+    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'plain.txt', 'upper.MD'].sort());
   }],
   ['Excluded directories', async () => {
     const files = (await backend().request('/api/files')).json().files;
@@ -189,7 +189,7 @@ const tests = [
   ['Invalid file requests', async () => {
     const api = backend();
     for (const route of ['/api/raw', '/api/edit']) {
-      for (const value of ['', '../other/other.md', outside + '/outside.md', 'plain.txt']) {
+      for (const value of ['', '../other/other.md', outside + '/outside.md', 'plain.unknown']) {
         assert.equal((await api.request(route + '?path=' + encodeURIComponent(value))).status, 400);
       }
     }
@@ -247,11 +247,11 @@ const tests = [
     const ui = await frontend(backend());
     assert(ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
-    assert.equal(ui.element('count').textContent, '7 files');
+    assert.equal(ui.element('count').textContent, '8 files');
     ui.run('toggleClaude()');
     assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(!ui.element('filelist').innerHTML.includes('agents.md'));
-    assert.equal(ui.element('count').textContent, '5 files');
+    assert.equal(ui.element('count').textContent, '6 files');
     ui.element('search').value = 'HELLO WORLD';
     ui.run('applyFilter()');
     assert(ui.element('filelist').innerHTML.includes('note.md'));
