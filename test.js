@@ -162,7 +162,7 @@ const tests = [
   }],
   ['Recursive Markdown scanning', async () => {
     const files = (await backend().request('/api/files')).json().files;
-    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'upper.MD'].sort());
+    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'plain.txt', 'upper.MD'].sort());
   }],
   ['Excluded directories', async () => {
     const files = (await backend().request('/api/files')).json().files;
@@ -189,7 +189,7 @@ const tests = [
   ['Invalid file requests', async () => {
     const api = backend();
     for (const route of ['/api/raw', '/api/edit']) {
-      for (const value of ['', '../other/other.md', outside + '/outside.md', 'plain.txt']) {
+      for (const value of ['', '../other/other.md', outside + '/outside.md', 'plain.unknown']) {
         assert.equal((await api.request(route + '?path=' + encodeURIComponent(value))).status, 400);
       }
     }
@@ -245,10 +245,12 @@ const tests = [
   }],
   ['Instruction-file toggle and search', async () => {
     const ui = await frontend(backend());
+    ui.run('toggleFilter("LLM")');
+    assert(ui.requests.includes('/api/filters'));
     assert(ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
     assert.equal(ui.element('count').textContent, '7 files');
-    ui.run('toggleClaude()');
+    ui.run('toggleFilter("LLM")');
     assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(!ui.element('filelist').innerHTML.includes('agents.md'));
     assert.equal(ui.element('count').textContent, '5 files');
@@ -259,7 +261,7 @@ const tests = [
     ui.element('search').value = 'agents';
     ui.run('applyFilter()');
     assert.match(ui.element('filelist').innerHTML, /No markdown files found/);
-    ui.run('toggleClaude()');
+    ui.run('toggleFilter("LLM")');
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
   }],
   ['Auto-refresh cadence, countdown, and cleanup', async () => {
@@ -407,7 +409,10 @@ const tests = [
 
     const ui = await frontend(api);
     const settle = () => new Promise(resolve => setImmediate(resolve));
-    for (let i = 0; i < 10; i++) if (!ui.element("filename").textContent) await settle();
+    for (let i = 0; i < 100; i++) {
+      if (ui.element("filename").textContent) break;
+      await settle();
+    }
 
     await ui.tick(1);
 

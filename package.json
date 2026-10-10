@@ -1,6 +1,6 @@
 {
   "name": "md-now",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "description": "A tiny, zero-dependency local Markdown browser. Scans a folder tree and renders Markdown.",
   "keywords": [
     "markdown",

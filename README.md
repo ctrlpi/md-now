@@ -1,7 +1,7 @@
 # MD Now
 
 [![Node 20+](https://img.shields.io/badge/node-20%2B-blue.svg)](https://nodejs.org/)
-[![Version 0.9.17](https://img.shields.io/badge/version-0.9.17-blue.svg)](https://github.com/ctrlpi/md-now/tags)
+[![Version 0.9.18](https://img.shields.io/badge/version-0.9.18-blue.svg)](https://github.com/ctrlpi/md-now/tags)
 ![Dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Status: Beta](https://img.shields.io/badge/status-Beta-red.svg)
