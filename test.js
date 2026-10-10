@@ -245,13 +245,15 @@ const tests = [
   }],
   ['Instruction-file toggle and search', async () => {
     const ui = await frontend(backend());
+    ui.run('toggleFilter("LLM")');
+    assert(ui.requests.includes('/api/filters'));
     assert(ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
-    assert.equal(ui.element('count').textContent, '8 files');
-    ui.run('toggleClaude()');
+    assert.equal(ui.element('count').textContent, '7 files');
+    ui.run('toggleFilter("LLM")');
     assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(!ui.element('filelist').innerHTML.includes('agents.md'));
-    assert.equal(ui.element('count').textContent, '6 files');
+    assert.equal(ui.element('count').textContent, '5 files');
     ui.element('search').value = 'HELLO WORLD';
     ui.run('applyFilter()');
     assert(ui.element('filelist').innerHTML.includes('note.md'));
@@ -259,7 +261,7 @@ const tests = [
     ui.element('search').value = 'agents';
     ui.run('applyFilter()');
     assert.match(ui.element('filelist').innerHTML, /No markdown files found/);
-    ui.run('toggleClaude()');
+    ui.run('toggleFilter("LLM")');
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
   }],
   ['Auto-refresh cadence, countdown, and cleanup', async () => {

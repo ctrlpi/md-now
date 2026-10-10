@@ -56,31 +56,38 @@ const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { retu
 const CTRLPI_DIR = path.join(HOME, '.ctrlpi');
 const FAVORITES_FILE = path.join(CTRLPI_DIR, 'md-now.json');
 
-function saveFavorites(favs) {
+function saveConfig(config) {
   try {
     if (!fs.existsSync(CTRLPI_DIR)) fs.mkdirSync(CTRLPI_DIR, { recursive: true });
-    fs.writeFileSync(FAVORITES_FILE, JSON.stringify(favs, null, 2), 'utf8');
+    fs.writeFileSync(FAVORITES_FILE, JSON.stringify(config, null, 2), 'utf8');
 
   } catch (e) {
     console.error('Error saving favorites:', e);
   }
 }
 
-function loadFavorites() {
+function loadConfig() {
   try {
     if (fs.existsSync(FAVORITES_FILE)) {
-      const favs = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
-      if (Array.isArray(favs)) return favs;
+      const data = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
+      if (Array.isArray(data)) {
+        return { favorites: data, filters: { MD: true, LLM: false, JSON: false, TXT: false } };
+      }
+      if (!data.filters) data.filters = { MD: true, LLM: false, JSON: false, TXT: false };
+      return data;
     }
   } catch (e) {
-    console.error('Error reading favorites, resetting to default:', e);
+    console.error('Error reading config, resetting to default:', e);
   }
-  const defaultFavs = [{ label: 'Documents', path: path.join(HOME, 'Documents') }];
-  saveFavorites(defaultFavs);
-  return defaultFavs;
+  const defaultConfig = { 
+    favorites: [{ label: 'Documents', path: path.join(HOME, 'Documents') }],
+    filters: { MD: true, LLM: false, JSON: false, TXT: false }
+  };
+  saveConfig(defaultConfig);
+  return defaultConfig;
 }
 
-const initialFavs = loadFavorites();
+const initialFavs = loadConfig().favorites;
 const DEFAULT_ROOT = (initialFavs.length > 0 && isDir(initialFavs[0].path)) ? initialFavs[0].path : (isDir(path.join(HOME, 'Documents')) ? path.join(HOME, 'Documents') : HOME);
 let currentRoot = path.resolve(rootArg || process.env.ROOT || DEFAULT_ROOT);
 let initialFileToOpen = null;
@@ -106,7 +113,7 @@ if (!/^\d+$/.test(portValue) || !Number.isInteger(PORT) || PORT < 1 || PORT > 65
   process.exit(1);
 }
 function presets() {
-  return loadFavorites().map(p => ({ ...p, available: isDir(p.path), active: p.path === currentRoot }));
+  return loadConfig().favorites.map(p => ({ ...p, available: isDir(p.path), active: p.path === currentRoot }));
 }
 
 function withinHome(full) { return full === HOME || full.startsWith(HOME + path.sep); }
@@ -293,7 +300,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/files') {
     try {
-      const data = JSON.stringify({ root: currentRoot, home: HOME, presets: presets(), files: listFiles(), initialFile: initialFileToOpen });
+      const data = JSON.stringify({ root: currentRoot, home: HOME, presets: presets(), filters: loadConfig().filters, files: listFiles(), initialFile: initialFileToOpen });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(data);
     } catch (e) {
@@ -303,6 +310,21 @@ const server = http.createServer((req, res) => {
     return;
   }
   
+  
+  if (pathname === '/api/filters') {
+    if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
+    try {
+      const filters = JSON.parse(body);
+      const config = loadConfig();
+      config.filters = filters;
+      saveConfig(config);
+      res.end(JSON.stringify({ ok: true }));
+    } catch(e) {
+      res.end(JSON.stringify({ error: String(e) }));
+    }
+    return;
+  }
+
   if (pathname === '/api/favorite') {
     if (req.method !== 'POST') {
       res.writeHead(405);
@@ -318,14 +340,15 @@ const server = http.createServer((req, res) => {
       }
 
       
-      let favs = loadFavorites();
+      let config = loadConfig();
+      let favs = config.favorites;
       const existingIdx = favs.findIndex(f => f.path === targetPath);
       if (existingIdx !== -1) {
         favs.splice(existingIdx, 1);
       } else {
         favs.push({ label: label || path.basename(targetPath), path: targetPath });
       }
-      saveFavorites(favs);
+      saveConfig(config);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, presets: presets() }));
     } catch (e) {
@@ -340,11 +363,12 @@ const server = http.createServer((req, res) => {
     try {
       const fromIdx = parseInt(parsed.searchParams.get('from'), 10);
       const toIdx = parseInt(parsed.searchParams.get('to'), 10);
-      let favs = loadFavorites();
+      let config = loadConfig();
+      let favs = config.favorites;
       if (fromIdx >= 0 && fromIdx < favs.length && toIdx >= 0 && toIdx < favs.length) {
         const [moved] = favs.splice(fromIdx, 1);
         favs.splice(toIdx, 0, moved);
-        saveFavorites(favs);
+        saveConfig(config);
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, presets: presets() }));
