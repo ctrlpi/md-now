@@ -4,11 +4,11 @@
 /*
  * MD Now: a tiny local Markdown browser.
  *
- * Scans folders for Markdown files and displays them with metadata.
- * The server uses Node built-ins; the browser loads marked from a CDN.
+ * Scans folders for Markdown, JSON, and text files and displays them with metadata.
+ * The server uses Node built-ins; the browser loads marked and DOMPurify from CDNs.
  *
  * Usage:
- *   node server.js [root-dir] [--port 8080] [--skip-open]
+ *   node server.js [root-dir | file] [--port PORT] [--skip-open]
  *   ROOT and PORT environment variables provide defaults.
  */
 
@@ -34,10 +34,10 @@ let portArg = null;
 let noOpen = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--help' || args[i] === '-h') {
-    console.log('Usage: md-viewer [root-dir] [--port PORT] [--skip-open]');
+    console.log('Usage: md-now [root-dir | file] [--port PORT] [--skip-open]');
     console.log('\nOptions:');
     console.log('  -p, --port <PORT>  Port to listen on (default: $PORT or 8181)');
-    console.log('  --skip-open          Start without opening a browser');
+    console.log('  --skip-open        Start without opening a browser');
     console.log('  -v, --version      Show version');
     console.log('  -h, --help         Show help');
     process.exit(0);
@@ -56,32 +56,46 @@ const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { retu
 const CTRLPI_DIR = path.join(HOME, '.ctrlpi');
 const FAVORITES_FILE = path.join(CTRLPI_DIR, 'md-now.json');
 
+const DEFAULT_FILTERS = { MD: true, LLM: true, JSON: false, TXT: false, hidden: false };
+
 function saveConfig(config) {
   try {
     if (!fs.existsSync(CTRLPI_DIR)) fs.mkdirSync(CTRLPI_DIR, { recursive: true });
     fs.writeFileSync(FAVORITES_FILE, JSON.stringify(config, null, 2), 'utf8');
-
   } catch (e) {
-    console.error('Error saving favorites:', e);
+    console.error('Error saving config:', e);
   }
 }
 
-function loadConfig() {
-  try {
-    if (fs.existsSync(FAVORITES_FILE)) {
-      const data = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
-      if (Array.isArray(data)) {
-        return { favorites: data, filters: { MD: true, LLM: false, JSON: false, TXT: false } };
-      }
-      if (!data.filters) data.filters = { MD: true, LLM: false, JSON: false, TXT: false };
-      return data;
+// Keep only known boolean filter keys, filling missing ones from the defaults.
+function normalizeFilters(filters) {
+  const out = { ...DEFAULT_FILTERS };
+  if (filters && typeof filters === 'object') {
+    for (const key of Object.keys(DEFAULT_FILTERS)) {
+      if (typeof filters[key] === 'boolean') out[key] = filters[key];
     }
-  } catch (e) {
-    console.error('Error reading config, resetting to default:', e);
   }
-  const defaultConfig = { 
+  return out;
+}
+
+// An unreadable config is kept as md-now.json.bak before defaults replace it.
+function loadConfig() {
+  if (fs.existsSync(FAVORITES_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
+      if (Array.isArray(data)) return { favorites: data, filters: { ...DEFAULT_FILTERS } };
+      if (data && typeof data === 'object') {
+        return { ...data, favorites: Array.isArray(data.favorites) ? data.favorites : [], filters: normalizeFilters(data.filters) };
+      }
+    } catch (e) {
+      console.error('Error reading config:', e.message);
+    }
+    try { fs.copyFileSync(FAVORITES_FILE, FAVORITES_FILE + '.bak'); }
+    catch (e) { console.error('Error backing up config:', e.message); }
+  }
+  const defaultConfig = {
     favorites: [{ label: 'Documents', path: path.join(HOME, 'Documents') }],
-    filters: { MD: true, LLM: false, JSON: false, TXT: false }
+    filters: { ...DEFAULT_FILTERS }
   };
   saveConfig(defaultConfig);
   return defaultConfig;
@@ -116,18 +130,19 @@ function presets() {
   return loadConfig().favorites.map(p => ({ ...p, available: isDir(p.path), active: p.path === currentRoot }));
 }
 
-function withinHome(full) { return full === HOME || full.startsWith(HOME + path.sep); }
-// Switch to a folder within home; return an error string on failure.
+const within = (full, dir) => full === dir || full.startsWith(dir + path.sep);
+// Switch to a folder within home, the current root, or a saved favorite; return an error string on failure.
 function setRoot(rel) {
   if (typeof rel !== 'string' || !rel) return 'No folder given';
   const full = path.resolve(HOME, rel); // absolute input is used as-is; relative is taken from HOME
-  if (!withinHome(full)) return 'Folder must be inside your home directory';
+  const isFavorite = loadConfig().favorites.some(f => f && typeof f.path === 'string' && path.resolve(f.path) === full);
+  if (!within(full, HOME) && !within(full, currentRoot) && !isFavorite) return 'Folder must be inside your home directory, the current folder, or a favorite';
   if (!isDir(full)) return 'Folder not found';
   currentRoot = full;
   return null;
 }
 
-const MD_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd', '.json', '.txt']);
+const FILE_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd', '.json', '.txt']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '.next', '.cache', 'venv']);
 
 // Helpers
@@ -172,33 +187,33 @@ function inspect(content, ext) {
   return { title, words, lines: lines.length };
 }
 
-// Collect Markdown files recursively, skipping excluded directories.
-function walk(dir, out) {
+// Collect supported files recursively, skipping excluded directories and, unless shown, hidden ones.
+function walk(dir, out, showHidden) {
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
   catch { return; }
   for (const ent of entries) {
-    if (ent.name.startsWith('.') && ent.isDirectory()) continue;
+    if (!showHidden && ent.name.startsWith('.') && ent.isDirectory()) continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) {
       if (SKIP_DIRS.has(ent.name)) continue;
-      walk(full, out);
-    } else if (ent.isFile() && MD_EXT.has(path.extname(ent.name).toLowerCase())) {
+      walk(full, out, showHidden);
+    } else if (ent.isFile() && FILE_EXT.has(path.extname(ent.name).toLowerCase())) {
       out.push(full);
     }
   }
 }
 
-function listFiles() {
+function listFiles(showHidden = loadConfig().filters.hidden) {
   const files = [];
-  walk(currentRoot, files);
+  walk(currentRoot, files, showHidden);
   const result = [];
   for (const full of files) {
     let stat, content = '';
     let isDataless = false;
     try {
       stat = fs.statSync(full);
-      // Skip reading iCloud dataless files to prevent hanging the server
+      // iCloud dataless files are listed without reading their content.
       isDataless = process.platform === 'darwin' && stat.size > 0 && stat.blocks === 0;
       if (!isDataless) {
         content = fs.readFileSync(full, 'utf8');
@@ -225,13 +240,12 @@ function listFiles() {
   return result;
 }
 
-// Require a Markdown extension and a resolved path within the current scan root.
+// Require a supported extension and a resolved path within the current scan root.
 function safeResolve(rel) {
   if (typeof rel !== 'string' || !rel) return null;
   const full = path.resolve(currentRoot, rel);
-  const within = full === currentRoot || full.startsWith(currentRoot + path.sep);
-  if (!within) return null;
-  if (!MD_EXT.has(path.extname(full).toLowerCase())) return null;
+  if (!within(full, currentRoot)) return null;
+  if (!FILE_EXT.has(path.extname(full).toLowerCase())) return null;
   try {
     const realRoot = fs.realpathSync(currentRoot);
     const realParent = fs.realpathSync(path.dirname(full));
@@ -256,15 +270,37 @@ const server = http.createServer((req, res) => {
   }
   const parsed = new URL(req.url, 'http://localhost');
   const pathname = parsed.pathname;
-  const action = ['/api/root', '/api/pick', '/api/open', '/api/edit', '/api/save'].includes(pathname);
+  const action = ['/api/root', '/api/pick', '/api/open', '/api/edit', '/api/save', '/api/delete',
+    '/api/filters', '/api/favorite', '/api/favorites/reorder'].includes(pathname);
   if (action && req.method !== 'POST') {
     res.writeHead(405, { Allow: 'POST' }); res.end('Use POST'); return;
   }
-  if (action && req.headers['x-md-viewer-token'] !== ACTION_TOKEN) {
+  if (action && req.headers['x-md-now-token'] !== ACTION_TOKEN) {
     res.writeHead(403); res.end('Forbidden request'); return;
   }
   if (pathname === '/api/ping') {
     res.writeHead(200); res.end('ok');
+    return;
+  }
+
+  // Deletion is permanent; the viewer confirms it first.
+  if (pathname === '/api/delete') {
+    const full = safeResolve(parsed.searchParams.get('path'));
+    if (!full) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Bad path' }));
+      return;
+    }
+    fs.unlink(full, (err) => {
+      if (err) {
+        console.error('delete failed:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'Delete failed' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true }));
+    });
     return;
   }
 
@@ -300,7 +336,8 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/files') {
     try {
-      const data = JSON.stringify({ root: currentRoot, home: HOME, presets: presets(), filters: loadConfig().filters, files: listFiles(), initialFile: initialFileToOpen });
+      const { filters } = loadConfig();
+      const data = JSON.stringify({ root: currentRoot, home: HOME, presets: presets(), filters, files: listFiles(filters.hidden), initialFile: initialFileToOpen });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(data);
     } catch (e) {
@@ -309,28 +346,26 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
-  
-  
+
   if (pathname === '/api/filters') {
-    if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
-    try {
-      const filters = JSON.parse(body);
-      const config = loadConfig();
-      config.filters = filters;
-      saveConfig(config);
-      res.end(JSON.stringify({ ok: true }));
-    } catch(e) {
-      res.end(JSON.stringify({ error: String(e) }));
-    }
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const config = loadConfig();
+        config.filters = normalizeFilters(JSON.parse(body));
+        saveConfig(config);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(e) }));
+      }
+    });
     return;
   }
 
   if (pathname === '/api/favorite') {
-    if (req.method !== 'POST') {
-      res.writeHead(405);
-      return res.end();
-    }
-
     try {
       const targetPath = parsed.searchParams.get("path");
       const label = parsed.searchParams.get("label");
@@ -338,10 +373,8 @@ const server = http.createServer((req, res) => {
         res.writeHead(400, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "Bad path" }));
       }
-
-      
-      let config = loadConfig();
-      let favs = config.favorites;
+      const config = loadConfig();
+      const favs = config.favorites;
       const existingIdx = favs.findIndex(f => f.path === targetPath);
       if (existingIdx !== -1) {
         favs.splice(existingIdx, 1);
@@ -359,12 +392,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/favorites/reorder') {
-    if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
     try {
       const fromIdx = parseInt(parsed.searchParams.get('from'), 10);
       const toIdx = parseInt(parsed.searchParams.get('to'), 10);
-      let config = loadConfig();
-      let favs = config.favorites;
+      const config = loadConfig();
+      const favs = config.favorites;
       if (fromIdx >= 0 && fromIdx < favs.length && toIdx >= 0 && toIdx < favs.length) {
         const [moved] = favs.splice(fromIdx, 1);
         favs.splice(toIdx, 0, moved);
@@ -421,7 +453,7 @@ const server = http.createServer((req, res) => {
   }
 
   // Open a file in the user's editor. $MD_EDITOR overrides; otherwise try VS Code
-  // (`code`) and fall back to the default text editor (`open -t`).
+  // (`code`), then the macOS text editor or the system's default app for the file.
   if (pathname === '/api/edit') {
     const full = safeResolve(parsed.searchParams.get('path'));
     if (!full) {
@@ -434,7 +466,7 @@ const server = http.createServer((req, res) => {
     } else {
       execFile('code', [full], err => {
         if (err) {
-          if (process.platform === 'win32') execFile('cmd.exe', ['/c', 'start', '""', full], () => {});
+          if (process.platform === 'win32') execFile('explorer', [full], () => {});
           else if (process.platform === 'darwin') execFile('open', ['-t', full], () => {});
           else execFile('xdg-open', [full], () => {});
         }

@@ -4,8 +4,8 @@
 // HTTP dispatch, OS commands, DOM, and timers are mocked; no applications launch.
 const assert = require('assert').strict;
 const fs = require('fs');
-// Windows returns blocks=0 (or undefined). Since we mock process.platform='darwin' in tests,
-// this falsely triggers the iCloud dataless check. We patch it here for the test environment.
+// The mocked platform is darwin, where blocks=0 marks iCloud dataless files. Windows reports
+// blocks=0 for every file, so give files a non-zero block count there.
 if (process.platform === 'win32') {
   const origStatSync = fs.statSync;
   fs.statSync = function() {
@@ -19,7 +19,7 @@ const path = require('path');
 const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'md-viewer-test-'));
+const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'md-now-test-'));
 const home = path.join(sandbox, 'home');
 const root = path.join(home, 'Documents');
 fs.mkdirSync(root, { recursive: true });
@@ -71,12 +71,12 @@ function backend(env = {}, args = [root, '--port', '9234']) {
       return new Promise((resolve, reject) => {
         const response = { status: 200, headers: {} };
         try {
-          const action = /^\/api\/(root|pick|open|edit)(\?|$)/.test(url);
-          const headers = { host: 'localhost:9234', 'x-md-viewer-token': token };
+          const action = /^\/api\/(root|pick|open|edit|save|delete|filters|favorite|favorites\/reorder)(\?|$)/.test(url);
+          const headers = { host: 'localhost:9234', 'x-md-now-token': token };
           for (const [key, value] of Object.entries(options.headers || {})) headers[key.toLowerCase()] = value;
-          handler({ 
-            url, 
-            method: options.method || (action ? 'POST' : 'GET'), 
+          handler({
+            url,
+            method: options.method || (action ? 'POST' : 'GET'),
             headers,
             on(event, callback) {
               if (event === 'data' && options.body) callback(Buffer.from(options.body));
@@ -119,7 +119,7 @@ async function frontend(api) {
     location: { reload: () => context.reloaded = true },
     document: { getElementById: element, querySelectorAll: () => [], title: '', body: { classList: { contains: () => false, toggle: () => {}, add: () => {}, remove: () => {} } } },
     marked: { parse: text => text },
-    DOMPurify: { sanitize: text => text }, // Integration is checked separately in a real browser.
+    DOMPurify: { sanitize: text => text }, // Stand-in; the real library is not loaded here.
     console,
     fetch: async (url, options = {}) => {
       if (url !== '/api/ping') requests.push(url);
@@ -242,15 +242,17 @@ const tests = [
     const custom = backend({ MD_EDITOR: '/custom/editor' });
     await custom.request('/api/edit?path=note.md');
     assert.deepEqual(custom.calls[1], { command: '/custom/editor', args: [full] });
+    api.process.platform = 'win32';
+    await api.request('/api/edit?path=note.md');
+    assert.deepEqual(api.calls[api.calls.length - 1], { command: 'explorer', args: [full] });
   }],
-  ['Instruction-file toggle and search', async () => {
+  ['LLM-file filter and search', async () => {
     const ui = await frontend(backend());
-    ui.run('toggleFilter("LLM")');
-    assert(ui.requests.includes('/api/filters'));
     assert(ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
     assert.equal(ui.element('count').textContent, '7 files');
     ui.run('toggleFilter("LLM")');
+    assert(ui.requests.includes('/api/filters'));
     assert(!ui.element('filelist').innerHTML.includes('CLAUDE.md'));
     assert(!ui.element('filelist').innerHTML.includes('agents.md'));
     assert.equal(ui.element('count').textContent, '5 files');
@@ -260,7 +262,7 @@ const tests = [
     assert(!ui.element('filelist').innerHTML.includes('upper.MD'));
     ui.element('search').value = 'agents';
     ui.run('applyFilter()');
-    assert.match(ui.element('filelist').innerHTML, /No markdown files found/);
+    assert.match(ui.element('filelist').innerHTML, /No files found/);
     ui.run('toggleFilter("LLM")');
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
   }],
@@ -314,10 +316,12 @@ const tests = [
   }],
   ['Action methods, tokens, hosts, and origins', async () => {
     const api = backend();
-    for (const route of ['/api/root?path=' + encodeURIComponent(other), '/api/pick', '/api/open', '/api/edit?path=note.md']) {
+    for (const route of ['/api/root?path=' + encodeURIComponent(other), '/api/pick', '/api/open', '/api/edit?path=note.md',
+      '/api/save?path=note.md', '/api/delete?path=note.md', '/api/filters', '/api/favorite?path=' + encodeURIComponent(other),
+      '/api/favorites/reorder?from=0&to=0']) {
       assert.equal((await api.request(route, { method: 'GET' })).status, 405);
       for (const headers of [
-        { 'x-md-viewer-token': undefined }, { 'x-md-viewer-token': 'wrong' },
+        { 'x-md-now-token': undefined }, { 'x-md-now-token': 'wrong' },
         { origin: 'http://example.com' }, { origin: 'null' }, { host: 'example.com:9234' },
       ]) assert.equal((await api.request(route, { headers })).status, 403);
     }
@@ -350,44 +354,33 @@ const tests = [
     assert.match(api.errors[0], /already in use/);
   }],
   ['Favorites addition and removal', async () => {
-    // Reset favorites file state before test
-    const ctrlpi = path.join(home, ".ctrlpi");
-    const favFile = path.join(ctrlpi, "md-now.json");
-    if (fs.existsSync(favFile)) fs.rmSync(favFile);
+    fs.rmSync(path.join(home, '.ctrlpi', 'md-now.json'), { force: true });
     const api = backend();
     const ui = await frontend(api);
 
-    // By default, Documents should be the only favorite
     let rootsHtml = ui.element('roots').innerHTML;
-    assert(rootsHtml.includes('>Documents</button>'), "Missing Documents: " + rootsHtml);
+    assert(rootsHtml.includes('>Documents</button>'), 'Missing Documents: ' + rootsHtml);
     assert(!rootsHtml.includes('>other</button>'));
-    assert.equal(ui.run("isFavorite"), true); // Started in Documents
-    
-    // Remove Documents from favorites
-    await ui.run("toggleFavorite()");
+    assert.equal(ui.run('isFavorite'), true);
 
-
-
+    await ui.run('toggleFavorite()');
     rootsHtml = ui.element('roots').innerHTML;
-    assert(!rootsHtml.includes('>Documents</button>'), "Should have removed Documents: " + rootsHtml);
-    assert.equal(ui.run("isFavorite"), false);
-    
-    // Add Documents back
-    await ui.run("toggleFavorite()");
+    assert(!rootsHtml.includes('>Documents</button>'), 'Documents was not removed: ' + rootsHtml);
+    assert.equal(ui.run('isFavorite'), false);
+
+    await ui.run('toggleFavorite()');
     rootsHtml = ui.element('roots').innerHTML;
     assert(rootsHtml.includes('>Documents</button>'));
-    assert.equal(ui.run("isFavorite"), true);
-    
-    // Switch to 'other' folder
-    await ui.run(`switchRoot('${other.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')`);
-    assert.equal(ui.run("isFavorite"), false);
-    
-    // Favorite 'other'
-    await ui.run("toggleFavorite()");
+    assert.equal(ui.run('isFavorite'), true);
+
+    await ui.run('switchRoot(' + JSON.stringify(other) + ')');
+    assert.equal(ui.run('isFavorite'), false);
+
+    await ui.run('toggleFavorite()');
     rootsHtml = ui.element('roots').innerHTML;
     assert(rootsHtml.includes('>Documents</button>'));
     assert(rootsHtml.includes('>other</button>'));
-    assert.equal(ui.run("isFavorite"), true);
+    assert.equal(ui.run('isFavorite'), true);
   }],
   ['Rendering uses sanitizer and fails closed if unavailable', async () => {
     const ui = await frontend(backend());
@@ -398,60 +391,42 @@ const tests = [
     await ui.run("openFile('note.md')");
     assert.match(ui.element('content').textContent, /could not load/);
   }],
-
   ['Command line file opening', async () => {
-    const fileToOpen = path.join(root, 'note.md');
-
-    const api = backend({}, [fileToOpen, "--port", "9234"]);
-
-    if (api.process.exitCode !== undefined) console.log("BACKEND CRASHED CODE", api.process.exitCode, api.errors);
-
-
-    const ui = await frontend(api);
+    const ui = await frontend(backend({}, [path.join(root, 'note.md'), '--port', '9234']));
     const settle = () => new Promise(resolve => setImmediate(resolve));
-    for (let i = 0; i < 100; i++) {
-      if (ui.element("filename").textContent) break;
-      await settle();
-    }
-
+    for (let i = 0; i < 100 && !ui.element('filename').textContent; i++) await settle();
     await ui.tick(1);
-
-    
-    // It should have opened the folder containing note.md
     assert.equal(ui.element('root').textContent, root);
-    // It should have opened note.md
     assert.equal(ui.element('filename').textContent, 'note.md');
   }],
-  ['Online edit and save', async () => {
+  ['In-browser edit and save', async () => {
     const api = backend();
     const ui = await frontend(api);
     await ui.run("openFile('note.md')");
-    
+
     await ui.run("startEditMode()");
     assert.equal(ui.element('editor-textarea').value, '# Hello world\nOne two three\n');
-    
+
     ui.element('editor-textarea').value = '# Updated Hello';
     await ui.run("saveEdit()");
-    
+
     assert.equal(fs.readFileSync(path.join(root, 'note.md'), 'utf8'), '# Updated Hello');
   }],
-
   ['Subfolder filter and parent directory', async () => {
     const ui = await frontend(backend());
-    await ui.run("toggleSubfolders()"); // sets hideSubfolders = true
-    
+    await ui.run('toggleSubfolders()');
+
     const html = ui.element('filelist').innerHTML;
     assert.match(html, /note\.md/);
     assert.match(html, /<span class="folder-name">nested\/<\/span>/);
     assert.match(html, /<span class="folder-name">\.\.\/<\/span>/);
   }],
-
   ['iCloud dataless files are skipped for read but listed', async () => {
     write(root, 'icloud.md', 'this is dataless');
     const fs = require('fs');
     const originalStatSync = fs.statSync;
     const originalReadFileSync = fs.readFileSync;
-    
+
     fs.statSync = function(p) {
       const stat = originalStatSync.apply(this, arguments);
       if (p.endsWith('icloud.md')) {
@@ -464,10 +439,10 @@ const tests = [
       if (p.endsWith('icloud.md')) readCount++;
       return originalReadFileSync.apply(this, arguments);
     };
-    
+
     try {
       const ui = await frontend(backend());
-      
+
       const html = ui.element('filelist').innerHTML;
       assert.match(html, /icloud\.md/);
       assert.match(html, /In the cloud/);
@@ -478,13 +453,11 @@ const tests = [
       fs.rmSync(path.join(root, 'icloud.md'));
     }
   }],
-
   ['Server disconnect banner and auto-reload', async () => {
     const api = backend();
     const ui = await frontend(api);
     assert.notEqual(ui.element('disconnect-banner').style.display, 'block');
 
-    // Simulate server dying
     const originalRequest = api.request;
     api.request = async (url, opts) => {
       if (api.kill) throw new Error("Connection refused");
@@ -496,11 +469,119 @@ const tests = [
     assert.equal(ui.element('disconnect-banner').style.display, 'block');
     assert.equal(ui.reloaded, undefined);
 
-    // Server comes back
     api.kill = false;
     await ui.tick(3);
     assert.equal(ui.element('disconnect-banner').style.display, 'none');
     assert.equal(ui.reloaded, true);
+  }],
+  ['File list load errors', async () => {
+    const api = backend();
+    const ui = await frontend(api);
+    const originalRequest = api.request;
+    api.request = async (url, opts) => url === '/api/files'
+      ? { status: 500, body: '', json: () => ({ error: 'Scan failed' }) }
+      : originalRequest(url, opts);
+    await ui.run('loadFiles()');
+    assert.match(ui.element('filelist').innerHTML, /Scan failed/);
+    api.request = async () => { throw new Error('Connection refused'); };
+    await ui.run('loadFiles()');
+    assert.match(ui.element('filelist').innerHTML, /Could not load files/);
+  }],
+  ['Hidden folders filter toggle', async () => {
+    const api = backend();
+    const ui = await frontend(api);
+    assert(!ui.element('filelist').innerHTML.includes('ignored.md'));
+
+    await ui.run('toggleFilter("HIDDEN")');
+    assert(ui.element('filelist').innerHTML.includes('.hidden/ignored.md'));
+    assert(!ui.element('filelist').innerHTML.includes('.git/ignored.md'));
+
+    await ui.run('toggleFilter("HIDDEN")');
+    assert(!ui.element('filelist').innerHTML.includes('ignored.md'));
+  }],
+  ['Delete file confirmation modal and deletion', async () => {
+    const testFile = write(root, 'del-test.md', '# To Delete\n');
+    assert(fs.existsSync(testFile));
+    const api = backend();
+    const ui = await frontend(api);
+    assert.equal(ui.element('delete-btn').disabled, true);
+
+    await ui.run("openFile('del-test.md')");
+    assert.equal(ui.element('delete-btn').disabled, false);
+
+    ui.run('openDeleteModal()');
+    assert.equal(ui.element('delete-modal').style.display, 'flex');
+    assert.equal(ui.element('delete-filename').textContent, 'del-test.md');
+
+    ui.run('closeDeleteModal()');
+    assert.equal(ui.element('delete-modal').style.display, 'none');
+    assert(fs.existsSync(testFile));
+
+    ui.run('openDeleteModal()');
+    await ui.run('executeDelete()');
+    assert(!fs.existsSync(testFile));
+    assert.equal(ui.element('delete-modal').style.display, 'none');
+    assert.equal(ui.element('filename').textContent, '');
+    assert.equal(ui.element('delete-btn').disabled, true);
+
+    const badDel = await api.request('/api/delete?path=../../outside.md');
+    assert.equal(badDel.status, 400);
+  }],
+  ['Startup file opens only once', async () => {
+    const ui = await frontend(backend({}, [path.join(root, 'note.md'), '--port', '9234']));
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+    for (let i = 0; i < 100 && !ui.element('filename').textContent; i++) await settle();
+    assert.equal(ui.element('filename').textContent, 'note.md');
+    await ui.run("openFile('upper.MD')");
+    ui.run('refreshFile()');
+    for (let i = 0; i < 20; i++) await settle();
+    assert.equal(ui.element('filename').textContent, 'upper.MD');
+  }],
+  ['Favorites and subfolders outside home', async () => {
+    const favFile = path.join(home, '.ctrlpi', 'md-now.json');
+    const sub = path.join(outside, 'sub');
+    write(sub, 'inner.md');
+    try {
+      const api = backend();
+      api.commandResult = () => ({ stdout: outside });
+      await api.request('/api/pick');
+      assert.equal((await api.request('/api/root?path=' + encodeURIComponent(sub))).status, 200);
+      await api.request('/api/root?path=' + encodeURIComponent(other));
+      assert.equal((await api.request('/api/root?path=' + encodeURIComponent(outside))).status, 400);
+      await api.request('/api/favorite?path=' + encodeURIComponent(outside));
+      const res = await api.request('/api/root?path=' + encodeURIComponent(outside));
+      assert.equal(res.status, 200);
+      assert.equal(res.json().root, outside);
+    } finally {
+      fs.rmSync(sub, { recursive: true, force: true });
+      fs.rmSync(favFile, { force: true });
+    }
+  }],
+  ['Filter settings are validated', async () => {
+    const favFile = path.join(home, '.ctrlpi', 'md-now.json');
+    try {
+      const api = backend();
+      await api.request('/api/filters', { body: JSON.stringify({ LLM: false, hidden: 'yes', extra: true }) });
+      assert.deepEqual(JSON.parse(fs.readFileSync(favFile, 'utf8')).filters,
+        { MD: true, LLM: false, JSON: false, TXT: false, hidden: false });
+      await api.request('/api/filters', { body: '"text"' });
+      assert.equal((await api.request('/api/files')).json().filters.LLM, true);
+      assert.equal((await api.request('/api/filters', { body: '{bad' })).status, 400);
+    } finally { fs.rmSync(favFile, { force: true }); }
+  }],
+  ['Unreadable config is backed up', async () => {
+    const favFile = path.join(home, '.ctrlpi', 'md-now.json');
+    fs.mkdirSync(path.dirname(favFile), { recursive: true });
+    fs.writeFileSync(favFile, '{ broken');
+    try {
+      const api = backend();
+      assert.equal(fs.readFileSync(favFile + '.bak', 'utf8'), '{ broken');
+      assert.equal(JSON.parse(fs.readFileSync(favFile, 'utf8')).favorites[0].label, 'Documents');
+      assert.match(api.errors[0], /Error reading config/);
+    } finally {
+      fs.rmSync(favFile, { force: true });
+      fs.rmSync(favFile + '.bak', { force: true });
+    }
   }],
 ];
 
