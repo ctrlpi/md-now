@@ -36,7 +36,7 @@ before replacing it.
 - `server.js`: HTTP routes and startup logic.
 - `page.html`: viewer HTML, CSS, and JavaScript. The server replaces
   `{{ACTION_TOKEN}}` with the per-session token when loading the page.
-- `test.js`: 30 tests with temporary fixtures and mocked HTTP dispatch, system
+- `test.js`: 31 tests with temporary fixtures and mocked HTTP dispatch, system
   commands, DOM elements, and timers. Browser layout is not tested.
 - `README.md`: installation, usage, features, and test instructions.
 
@@ -79,8 +79,12 @@ Normalize picker results with `path.resolve` before storing the root.
 The top bar contains the MD Now brand, favorite folder pills (Documents by default),
 folder picker, root path, favorite toggle, Open button, files filter menu, subfolder
 toggle, and theme toggle. Open is enabled once a folder loads. The filter menu toggles
-Markdown, LLM files (`CLAUDE.md`, `AGENTS.md`, case-insensitive), `.json`, `.txt`, and
-hidden folders (folders starting with `.`). Markdown and LLM files are shown by default.
+Markdown, LLM files (`CLAUDE.md`, `AGENTS.md`, case-insensitive), `.json`, `.txt`, `.html`
+(also `.htm`), and hidden folders (folders starting with `.`; hidden files are always listed).
+Markdown and LLM files are shown by default. HTML files render in an iframe with
+`sandbox="allow-scripts"` and `srcdoc`, so their scripts run in an opaque origin that cannot
+reach the viewer or the API; relative assets such as images do not load. HTML metadata uses
+the `<title>` and counts words in the visible text.
 
 The file toolbar shows the file name or file count, then Edit in browser, Edit, Delete
 (red trash icon with a confirmation popup), Refresh, and Auto-refresh. These controls

@@ -4,7 +4,7 @@
 /*
  * MD Now: a tiny local Markdown browser.
  *
- * Scans folders for Markdown, JSON, and text files and displays them with metadata.
+ * Scans folders for Markdown, JSON, text, and HTML files and displays them with metadata.
  * The server uses Node built-ins; the browser loads marked and DOMPurify from CDNs.
  *
  * Usage:
@@ -56,7 +56,7 @@ const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { retu
 const CTRLPI_DIR = path.join(HOME, '.ctrlpi');
 const FAVORITES_FILE = path.join(CTRLPI_DIR, 'md-now.json');
 
-const DEFAULT_FILTERS = { MD: true, LLM: true, JSON: false, TXT: false, hidden: false };
+const DEFAULT_FILTERS = { MD: true, LLM: true, JSON: false, TXT: false, HTML: false, hidden: false };
 
 function saveConfig(config) {
   try {
@@ -142,7 +142,7 @@ function setRoot(rel) {
   return null;
 }
 
-const FILE_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd', '.json', '.txt']);
+const FILE_EXT = new Set(['.md', '.markdown', '.mdown', '.mkd', '.json', '.txt', '.html', '.htm']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '.next', '.cache', 'venv']);
 
 // Helpers
@@ -165,8 +165,14 @@ function timeAgo(ms) {
 }
 
 // Use the first non-empty line as the title and count words and lines.
+// HTML uses its <title> and counts words in the visible text.
 function inspect(content, ext) {
   const lines = content.split(/\r?\n/);
+  if (ext === '.html' || ext === '.htm') {
+    const m = content.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const text = content.replace(/<(script|style|title)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ');
+    return { title: m ? m[1].replace(/\s+/g, ' ').trim() : '', words: (text.match(/\S+/g) || []).length, lines: lines.length };
+  }
   let title = '';
   for (const line of lines) {
     const t = line.trim();

@@ -1,7 +1,7 @@
 # MD Now
 
 [![Node 20+](https://img.shields.io/badge/node-20%2B-blue.svg)](https://nodejs.org/)
-[![Version 0.9.19](https://img.shields.io/badge/version-0.9.19-blue.svg)](https://github.com/ctrlpi/md-now/tags)
+[![Version 0.9.20](https://img.shields.io/badge/version-0.9.20-blue.svg)](https://github.com/ctrlpi/md-now/tags)
 ![Dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen.svg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Status: Beta](https://img.shields.io/badge/status-Beta-red.svg)
@@ -38,11 +38,11 @@ md-now
 - **External editor**: Open the selected file in your editor (see `MD_EDITOR`).
 - **Delete**: Delete the selected file after confirmation. Deletion is permanent; the file is not moved to the Trash.
 - **Sidebar metadata & search**: Each file shows its title, word count (fields for JSON), size, and modification time, newest first. The search box filters by path and title.
-- **File filters**: Show or hide Markdown files, LLM instruction files (`CLAUDE.md`, `AGENTS.md`), `.json`, `.txt`, and hidden folders. Markdown and LLM files are shown by default.
+- **File filters**: Show or hide Markdown files, LLM instruction files (`CLAUDE.md`, `AGENTS.md`), `.json`, `.txt`, `.html`, and hidden folders. Markdown and LLM files are shown by default. HTML files render as pages in a sandboxed frame.
 - **Favorites & folder switcher**: Save folders as clickable pills, reorder them by dragging, or pick a folder with the native macOS picker (elsewhere, pass it on the command line).
 - **Subfolder view**: Hide files in subfolders and show folder rows with file counts instead.
 - **Auto-refresh**: Reload the open file every 3/5/10/30s to watch a document update as you edit it elsewhere.
-- **Recursive scan**: Finds `.md`, `.markdown`, `.mdown`, `.mkd`, `.json`, and `.txt` files, skipping `node_modules`, `.git`, `dist`, `build`, `venv`, and similar folders.
+- **Recursive scan**: Finds `.md`, `.markdown`, `.mdown`, `.mkd`, `.json`, `.txt`, `.html`, and `.htm` files, skipping `node_modules`, `.git`, `dist`, `build`, `venv`, and similar folders.
 - **iCloud support**: Lists iCloud files that are not downloaded as "In the cloud" without reading them.
 - **Dark mode**: Follows the system theme, with a toggle in the top bar.
 - **Reconnect**: Shows a banner when the server stops and reloads the page when it returns.

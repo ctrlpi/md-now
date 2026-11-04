@@ -36,6 +36,7 @@ function write(dir, name, text = '# Fixture\n') {
 write(root, 'note.md', note);
 for (const name of ['nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'upper.MD', 'CLAUDE.md', 'agents.md', 'plain.txt']) write(root, name);
 for (const dir of ['.hidden', '.git', 'node_modules', 'venv', 'dist', 'build']) write(root, dir + '/ignored.md');
+write(root, 'site/page.html', '<!doctype html>\n<html><head><title>My  Page</title><style>p{}</style></head>\n<body><p>Hi "there" & you</p><script>run()</script></body></html>\n');
 write(other, 'other.md');
 write(outside, 'outside.md');
 fs.utimesSync(path.join(root, 'note.md'), new Date('2020-01-01'), new Date('2020-01-01'));
@@ -162,7 +163,7 @@ const tests = [
   }],
   ['Recursive Markdown scanning', async () => {
     const files = (await backend().request('/api/files')).json().files;
-    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'plain.txt', 'upper.MD'].sort());
+    assert.deepEqual(files.map(f => f.path).sort(), ['CLAUDE.md', 'agents.md', 'nested/a.markdown', 'nested/b.mdown', 'nested/c.mkd', 'note.md', 'plain.txt', 'site/page.html', 'upper.MD'].sort());
   }],
   ['Excluded directories', async () => {
     const files = (await backend().request('/api/files')).json().files;
@@ -265,6 +266,22 @@ const tests = [
     assert.match(ui.element('filelist').innerHTML, /No files found/);
     ui.run('toggleFilter("LLM")');
     assert(ui.element('filelist').innerHTML.includes('agents.md'));
+  }],
+  ['HTML filter, metadata, and sandboxed rendering', async () => {
+    const api = backend();
+    const file = (await api.request('/api/files')).json().files.find(f => f.name === 'page.html');
+    assert.equal(file.title, 'My Page');
+    assert.equal(file.words, 4);
+    const ui = await frontend(api);
+    assert(!ui.element('filelist').innerHTML.includes('page.html'));
+    ui.run('toggleFilter("HTML")');
+    assert(ui.element('filelist').innerHTML.includes('page.html'));
+    assert.equal(ui.element('count').textContent, '8 files');
+    await ui.run("openFile('site/page.html')");
+    const html = ui.element('content').innerHTML;
+    assert.match(html, /^<iframe class="html-frame" sandbox="allow-scripts" srcdoc="/);
+    assert(html.includes('Hi &quot;there&quot; &amp; you'));
+    assert(!html.includes('<p>'), 'HTML source must stay inside the srcdoc attribute');
   }],
   ['Auto-refresh cadence, countdown, and cleanup', async () => {
     const ui = await frontend(backend());
@@ -563,7 +580,7 @@ const tests = [
       const api = backend();
       await api.request('/api/filters', { body: JSON.stringify({ LLM: false, hidden: 'yes', extra: true }) });
       assert.deepEqual(JSON.parse(fs.readFileSync(favFile, 'utf8')).filters,
-        { MD: true, LLM: false, JSON: false, TXT: false, hidden: false });
+        { MD: true, LLM: false, JSON: false, TXT: false, HTML: false, hidden: false });
       await api.request('/api/filters', { body: '"text"' });
       assert.equal((await api.request('/api/files')).json().filters.LLM, true);
       assert.equal((await api.request('/api/filters', { body: '{bad' })).status, 400);
